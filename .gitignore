@@ -1,0 +1,15 @@
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+.eyeexam/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+audit.log
+audit.key
+audit.key.pub
+.idea/
+.vscode/

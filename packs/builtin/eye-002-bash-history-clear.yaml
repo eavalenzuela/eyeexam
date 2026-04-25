@@ -1,0 +1,31 @@
+id: eye-002-bash-history-clear
+name: Clear a sandbox bash history file
+description: |
+  Mimics T1070.003 (Indicator Removal: Clear Command History) on a *sandbox*
+  history file we own under /tmp. We deliberately do NOT touch the real
+  ~/.bash_history — that would be destructive on a smoke test.
+
+attack:
+  technique: T1070.003
+  tactic: TA0005
+
+destructiveness: low
+platforms: [linux]
+
+execute:
+  - shell: bash
+    command: |
+      mkdir -p /tmp/eyeexam-002
+      printf 'cmd-1\ncmd-2\ncmd-3\n' > /tmp/eyeexam-002/.history
+      cat /dev/null > /tmp/eyeexam-002/.history
+      test ! -s /tmp/eyeexam-002/.history && echo "history cleared"
+
+cleanup:
+  - shell: bash
+    command: |
+      rm -rf /tmp/eyeexam-002
+
+verify_cleanup:
+  - shell: bash
+    command: |
+      test ! -e /tmp/eyeexam-002

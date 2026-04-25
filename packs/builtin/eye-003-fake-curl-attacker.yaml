@@ -1,0 +1,33 @@
+id: eye-003-fake-curl-attacker
+name: Simulate a curl-from-attacker download
+description: |
+  Mimics T1105 (Ingress Tool Transfer) without actually reaching the network.
+  Uses the loopback file: scheme so SIEM rules keyed on "curl piped into a
+  staging directory" can fire without any external traffic.
+
+attack:
+  technique: T1105
+  tactic: TA0011
+
+destructiveness: low
+platforms: [linux]
+
+execute:
+  - shell: bash
+    command: |
+      mkdir -p /tmp/eyeexam-003
+      printf '#!/bin/sh\necho hello from staged tool\n' > /tmp/eyeexam-003/source.sh
+      curl -sS "file:///tmp/eyeexam-003/source.sh" -o /tmp/eyeexam-003/staged_tool || \
+        cp /tmp/eyeexam-003/source.sh /tmp/eyeexam-003/staged_tool
+      chmod +x /tmp/eyeexam-003/staged_tool
+      /tmp/eyeexam-003/staged_tool
+
+cleanup:
+  - shell: bash
+    command: |
+      rm -rf /tmp/eyeexam-003
+
+verify_cleanup:
+  - shell: bash
+    command: |
+      test ! -e /tmp/eyeexam-003

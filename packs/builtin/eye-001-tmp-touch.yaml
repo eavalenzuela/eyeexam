@@ -1,0 +1,28 @@
+id: eye-001-tmp-touch
+name: Touch a marker file in /tmp
+description: |
+  Smoke test that proves the runner-execute-cleanup-verify loop works end to
+  end. Creates a marker file and removes it during cleanup.
+
+attack:
+  technique: T1059.004
+  tactic: TA0002
+
+destructiveness: low
+platforms: [linux]
+
+execute:
+  - shell: bash
+    command: |
+      touch /tmp/eyeexam-smoke-001
+      echo "marker created"
+
+cleanup:
+  - shell: bash
+    command: |
+      rm -f /tmp/eyeexam-smoke-001
+
+verify_cleanup:
+  - shell: bash
+    command: |
+      test ! -f /tmp/eyeexam-smoke-001
