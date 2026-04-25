@@ -11,6 +11,36 @@ inconsistencies are listed in §2.7).
 
 ---
 
+## Status (M1–M8 shipped)
+
+| ms | scope                                              | status   | notable plan deviations                              |
+|----|----------------------------------------------------|----------|------------------------------------------------------|
+| M1 | local runner, native pack, store, audit, CLI       | shipped  | none                                                 |
+| M2 | SSH runner, inventory check, audit richness        | shipped  | docker-compose sshd → in-process `tests/sshfx` (§7 M2 notes) |
+| M3 | detector iface, loki + slither stub, scoring       | shipped  | slither read API is a JSON-over-HTTP shim (§8.1 + `docs/slither-detector.md`) |
+| M4 | Atomic Red Team support, sidecar expectations      | shipped  | eyeexam never clones; operators manage the clone (`docs/atomic-redteam.md`) |
+| M5 | ATT&CK matrix + read-only UI                       | shipped  | `templ` + htmx → stdlib `html/template` (§2.3.1)      |
+| M6 | Wazuh + Elastic + Splunk detectors                 | shipped  | docker-compose harness → `httptest`-based parity test |
+| M7 | slither runner via signed control plane            | shipped  | gRPC RPC → JSON-over-HTTP shim until slither defines proto (`docs/slither-runner.md`) |
+| M8 | schedule + drift alerts                            | shipped  | none                                                 |
+
+The deviations listed are intentional substitutions documented in this file
+or in `docs/`. Each one preserves the original interface contract; swapping
+back to the planned dependency (templ, gRPC, etc.) is mechanical and does
+not change runlife / score / audit.
+
+The per-milestone scopes in §7 below remain accurate as the build records.
+Operator-facing documentation lives under `docs/`:
+
+- `docs/deploy-ssh.md` — eyeexam OS user, sudoers stanza, hostkey pinning.
+- `docs/atomic-redteam.md` — operator clone workflow, sidecar layout.
+- `docs/detectors.md` — per-backend config reference.
+- `docs/scheduler.md` — schedule authoring + drift alerts.
+- `docs/slither-detector.md`, `docs/slither-runner.md` — shim contracts +
+  gRPC swap targets for when slither's BAS surface ships.
+
+---
+
 ## 1. Build approach
 
 Eight milestones (M1 → M8), one session per milestone. Each milestone:
