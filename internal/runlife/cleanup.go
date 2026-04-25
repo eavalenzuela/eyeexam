@@ -48,7 +48,10 @@ func (e *Engine) cleanupOne(ctx context.Context, runID string, ex store.Executio
 	if len(t.Cleanup) == 0 {
 		ex.CleanupState = "no_cleanup_defined"
 	} else {
-		_, _, exit, _, runErr := runSteps(ctx, rn, h, t.Cleanup)
+		_, _, exit, _, _, runErr := runSteps(ctx, rn, h, t.Cleanup, map[string]string{
+			"EYEEXAM_CONTROL_ID": ex.ID,
+			"EYEEXAM_RUN_ID":     runID,
+		})
 		if runErr != nil || exit != 0 {
 			ex.CleanupState = "failed"
 		} else {
@@ -65,7 +68,10 @@ func (e *Engine) cleanupOne(ctx context.Context, runID string, ex store.Executio
 	} else if ex.CleanupState == "failed" {
 		ex.CleanupVerifyState = "failed"
 	} else {
-		_, _, exit, _, runErr := runSteps(ctx, rn, h, t.VerifyCleanup)
+		_, _, exit, _, _, runErr := runSteps(ctx, rn, h, t.VerifyCleanup, map[string]string{
+			"EYEEXAM_CONTROL_ID": ex.ID,
+			"EYEEXAM_RUN_ID":     runID,
+		})
 		if runErr != nil || exit != 0 {
 			ex.CleanupVerifyState = "failed"
 		} else {

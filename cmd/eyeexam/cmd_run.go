@@ -110,6 +110,14 @@ func doRun(rf runFlags) error {
 		runners["ssh"] = sshR
 		defer func() { _ = sshR.Close() }()
 	}
+	if hostsUseTransport(inv, "slither") {
+		slR, err := buildSlitherRunner(cfg, rf.engagement, actor.String())
+		if err != nil {
+			return fmt.Errorf("slither runner: %w", err)
+		}
+		runners["slither"] = slR
+		defer func() { _ = slR.Close() }()
+	}
 
 	dreg, err := buildDetectorRegistry(cfg)
 	if err != nil {
@@ -287,6 +295,21 @@ func buildSSHRunner(cfg config.Config) (*runner.SSH, error) {
 		KnownHostsPath: cfg.Runner.SSH.KnownHosts,
 		ConnectTimeout: connectTO,
 		CommandTimeout: cmdTO,
+	})
+}
+
+func buildSlitherRunner(cfg config.Config, engagementID, operatorID string) (*runner.SlitherRunner, error) {
+	if cfg.Runner.Slither.Server == "" {
+		return nil, fmt.Errorf("config.runner.slither.server is required when inventory contains transport=slither hosts")
+	}
+	apiKey := os.Getenv("EYEEXAM_SLITHER_KEY")
+	return runner.NewSlitherRunner(runner.SlitherRunnerConfig{
+		Server:         cfg.Runner.Slither.Server,
+		APIKey:         apiKey,
+		OperatorID:     operatorID,
+		EngagementID:   engagementID,
+		ConnectTimeout: 10 * time.Second,
+		CommandTimeout: 5 * time.Minute,
 	})
 }
 

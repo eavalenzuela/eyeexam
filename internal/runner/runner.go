@@ -26,6 +26,11 @@ type Result struct {
 	Stderr   []byte
 	Started  time.Time
 	Finished time.Time
+	// Extra is runner-specific metadata that runlife threads into the
+	// test_executed audit record. Used today by the slither runner to
+	// emit `slither_control_id` so eyeexam audits cross-reference the
+	// dispatch on slither's side.
+	Extra map[string]string
 }
 
 func (r Result) Duration() time.Duration { return r.Finished.Sub(r.Started) }

@@ -209,7 +209,11 @@ func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest
 		return err
 	}
 
-	stdout, stderr, exitCode, dur, runErr := runSteps(ctx, rn, h, t.Execute)
+	stdout, stderr, exitCode, dur, extra, runErr := runSteps(ctx, rn, h, t.Execute, map[string]string{
+		"EYEEXAM_CONTROL_ID": exID,
+		"EYEEXAM_RUN_ID":     r.ID,
+		"EYEEXAM_ENGAGEMENT": r.EngagementID,
+	})
 	exec.FinishedAt = sql.NullString{String: time.Now().UTC().Format(time.RFC3339Nano), Valid: true}
 	exec.ExitCode = sql.NullInt64{Int64: int64(exitCode), Valid: true}
 	exec.DurationMS = sql.NullInt64{Int64: dur.Milliseconds(), Valid: true}
@@ -223,6 +227,7 @@ func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest
 			"test_id":      t.ID,
 			"exit_code":    exitCode,
 			"runner_err":   errString(runErr),
+			"runner_extra": extra,
 		})
 		_, _ = e.audit.Append(ctx, audit.Record{
 			Actor: actor, Engagement: r.EngagementID, RunID: r.ID,
@@ -239,24 +244,31 @@ func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest
 	return nil
 }
 
-// runSteps executes a slice of pack steps in order, returning combined stdout
-// and stderr plus the final exit code. Stops at the first non-zero exit.
-func runSteps(ctx context.Context, rn runner.Runner, host inventory.Host, steps []pack.Step) (stdout, stderr []byte, exitCode int, total time.Duration, err error) {
+// runSteps executes a slice of pack steps in order, returning combined
+// stdout / stderr / exit / duration plus an Extra map merged across all
+// steps' Result.Extra. Stops at the first non-zero exit.
+func runSteps(ctx context.Context, rn runner.Runner, host inventory.Host, steps []pack.Step, env map[string]string) (stdout, stderr []byte, exitCode int, total time.Duration, extra map[string]string, err error) {
 	for _, s := range steps {
 		res, runErr := rn.Execute(ctx, host, runner.ExecuteStep{
-			Shell: s.Shell, Command: s.Command,
+			Shell: s.Shell, Command: s.Command, Env: env,
 		})
 		stdout = append(stdout, res.Stdout...)
 		stderr = append(stderr, res.Stderr...)
 		total += res.Duration()
+		if extra == nil && len(res.Extra) > 0 {
+			extra = make(map[string]string, len(res.Extra))
+		}
+		for k, v := range res.Extra {
+			extra[k] = v
+		}
 		if runErr != nil {
-			return stdout, stderr, -1, total, runErr
+			return stdout, stderr, -1, total, extra, runErr
 		}
 		if res.ExitCode != 0 {
-			return stdout, stderr, res.ExitCode, total, nil
+			return stdout, stderr, res.ExitCode, total, extra, nil
 		}
 	}
-	return stdout, stderr, 0, total, nil
+	return stdout, stderr, 0, total, extra, nil
 }
 
 func inlineOrNull(b []byte) sql.NullString {

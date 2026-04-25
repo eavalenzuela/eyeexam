@@ -4,6 +4,7 @@ import "os"
 
 func osMkdirAll(p string) error            { return os.MkdirAll(p, 0o755) }
 func osWriteFile(p string, b []byte) error { return os.WriteFile(p, b, 0o644) }
+func osReadFile(p string) ([]byte, error)  { return os.ReadFile(p) }
 
 func itoa(i int) string {
 	if i == 0 {
