@@ -61,8 +61,8 @@ already-defined interfaces, so the skeleton is not re-done.
 | SQLite (CGO-free)   | `modernc.org/sqlite` + `github.com/jmoiron/sqlx` |
 | Migrations          | `github.com/pressly/goose/v3` (embedded SQL)   |
 | SSH                 | `golang.org/x/crypto/ssh`                      |
-| HTML templates      | `github.com/a-h/templ`                         |
-| HTMX (vendored)     | `htmx.org` minified, `ui/static/htmx.min.js`   |
+| HTML templates      | `html/template` (stdlib) — see §2.3.1           |
+| HTMX                | not bundled in v1; UI is server-rendered (§2.3.1) |
 | MITRE ATT&CK STIX   | downloaded once at build, vendored under `packs/attack/` |
 | Logging             | `log/slog` (stdlib), JSON to stderr            |
 | ed25519             | `crypto/ed25519` (stdlib)                      |
@@ -70,6 +70,27 @@ already-defined interfaces, so the skeleton is not re-done.
 
 `mattn/go-sqlite3` is **not** used. (Resolves PLAN.md §"Packaging & deps"
 inconsistency.)
+
+#### 2.3.1 templ + htmx → stdlib swap (M5)
+
+The original plan called for `templ` (codegen) + a vendored htmx.min.js. In
+M5 we landed the read-only UI on stdlib `html/template` instead, with no
+htmx dependency:
+
+- **No codegen step.** `templ generate` would have added a tool-install
+  prerequisite to `make build` and a generated-file-in-PR review burden;
+  stdlib templates ship as plain text, embedded via `//go:embed`.
+- **No htmx for v1.** The viewer is read-only — every page is a plain
+  GET. There is no live update, no partial reload. We can layer htmx in
+  later (drift cell → runs popover, etc.) without changing the routes.
+- **Per-page parsed templates.** Because every page defines a `content`
+  block, parsing them all into one `*template.Template` causes the last
+  parsed file to win. `ui/handlers.go` parses each page independently
+  (base.html + that page's file), keyed by name. This costs negligible
+  memory and avoids template-namespace collisions.
+
+The htmx vendoring task is reopened only if a future milestone needs
+interactive cells. The Detector / Score / runlife layers are unchanged.
 
 ### 2.4 Repo layout (final, supersedes PLAN.md sketch)
 

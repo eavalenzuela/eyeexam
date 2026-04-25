@@ -1,0 +1,48 @@
+{{define "content"}}
+<h1>Run {{.Run.ID}}</h1>
+<dl class="meta">
+  <dt>engagement</dt><dd>{{.Run.EngagementID}}</dd>
+  <dt>phase</dt><dd>{{.Run.Phase}}</dd>
+  <dt>max_dest</dt><dd>{{.Run.MaxDest}}</dd>
+  <dt>authorized</dt><dd>{{.Run.AuthorizedBy}}</dd>
+  <dt>started</dt><dd>{{.Run.StartedAt.String}}</dd>
+  <dt>finished</dt><dd>{{.Run.FinishedAt.String}}</dd>
+</dl>
+
+<h2>Executions</h2>
+<table class="execs">
+  <thead><tr><th>exec_id</th><th>host</th><th>test</th><th>exit</th><th>detect</th><th>cleanup</th><th>verify</th></tr></thead>
+  <tbody>
+    {{range .Executions}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td>{{index $.HostNames .HostID}}</td>
+        <td>{{.TestID}}</td>
+        <td>{{.ExitCode.Int64}}</td>
+        <td><span class="cell {{detectClass .DetectionState}}">{{.DetectionState}}</span></td>
+        <td>{{.CleanupState}}</td>
+        <td>{{.CleanupVerifyState}}</td>
+      </tr>
+    {{end}}
+  </tbody>
+</table>
+
+{{if .Expectations}}
+<h2>Expected detections</h2>
+<table>
+  <thead><tr><th>execution</th><th>state</th><th>detector</th><th>reason</th></tr></thead>
+  <tbody>
+    {{range .Expectations}}
+      <tr>
+        <td>{{.ExecutionID}}</td>
+        <td><span class="cell {{detectClass .State}}">{{.State}}</span></td>
+        <td>{{.DetectorName.String}}</td>
+        <td>{{.Reason.String}}</td>
+      </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}
+
+{{template "base" .}}

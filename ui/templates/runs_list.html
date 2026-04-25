@@ -1,0 +1,24 @@
+{{define "content"}}
+<h1>Runs</h1>
+{{if .Runs}}
+  <table class="runs">
+    <thead><tr><th>id</th><th>phase</th><th>engagement</th><th>max_dest</th><th>started</th><th>finished</th></tr></thead>
+    <tbody>
+      {{range .Runs}}
+        <tr>
+          <td><a href="/runs/{{.ID}}">{{.ID}}</a></td>
+          <td>{{.Phase}}</td>
+          <td>{{.EngagementID}}</td>
+          <td>{{.MaxDest}}</td>
+          <td>{{.StartedAt.String}}</td>
+          <td>{{.FinishedAt.String}}</td>
+        </tr>
+      {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <p>No runs yet.</p>
+{{end}}
+{{end}}
+
+{{template "base" .}}

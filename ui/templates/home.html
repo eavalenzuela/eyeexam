@@ -1,0 +1,47 @@
+{{define "content"}}
+<h1>eyeexam</h1>
+
+<section>
+  <h2>Recent runs</h2>
+  {{if .Runs}}
+    <table class="runs">
+      <thead><tr><th>id</th><th>phase</th><th>engagement</th><th>started</th></tr></thead>
+      <tbody>
+        {{range .Runs}}
+          <tr>
+            <td><a href="/runs/{{.ID}}">{{.ID}}</a></td>
+            <td>{{.Phase}}</td>
+            <td>{{.EngagementID}}</td>
+            <td>{{.StartedAt.String}}</td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <p>No runs yet. Try <code>eyeexam run --pack builtin --hosts localhost --authorized --max-dest low --yes</code>.</p>
+  {{end}}
+</section>
+
+<section>
+  <h2>Detection drift ({{.Window.Since.Format "2006-01-02"}} → {{.Window.Until.Format "2006-01-02"}})</h2>
+  {{if .Drift}}
+    <table>
+      <thead><tr><th>technique</th><th>was</th><th>now</th><th>at</th></tr></thead>
+      <tbody>
+        {{range .Drift}}
+          <tr>
+            <td><strong>{{.TechniqueID}}</strong> — {{.TechniqueName}}</td>
+            <td><span class="cell {{.From}}">{{.From}}</span></td>
+            <td><span class="cell {{.To}}">{{.To}}</span></td>
+            <td>{{.At.Format "2006-01-02 15:04Z"}}</td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <p>No regressions detected in the configured window.</p>
+  {{end}}
+</section>
+{{end}}
+
+{{template "base" .}}
