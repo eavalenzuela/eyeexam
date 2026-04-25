@@ -337,6 +337,60 @@ func buildDetectorRegistry(cfg config.Config) (*detector.Registry, error) {
 				return nil, err
 			}
 			dets = append(dets, sd)
+		case "wazuh":
+			wd, err := detector.NewWazuh(dc.Name, detector.WazuhConfig{
+				URL:            stringOpt(dc.Options, "url"),
+				IndexPattern:   stringOpt(dc.Options, "index_pattern"),
+				Username:       stringOpt(dc.Options, "username"),
+				Password:       envOpt(stringOpt(dc.Options, "password_env")),
+				APIKey:         envOpt(stringOpt(dc.Options, "api_key_env")),
+				HostField:      stringOpt(dc.Options, "host_field"),
+				RuleField:      stringOpt(dc.Options, "rule_field"),
+				TagField:       stringOpt(dc.Options, "tag_field"),
+				TimestampField: stringOpt(dc.Options, "timestamp_field"),
+				InsecureTLS:    boolOpt(dc.Options, "insecure_tls"),
+				Timeout:        10 * time.Second,
+			})
+			if err != nil {
+				return nil, err
+			}
+			dets = append(dets, wd)
+		case "elastic":
+			ed, err := detector.NewElastic(dc.Name, detector.ElasticConfig{
+				URL:            stringOpt(dc.Options, "url"),
+				IndexPattern:   stringOpt(dc.Options, "index_pattern"),
+				APIKey:         envOpt(stringOpt(dc.Options, "api_key_env")),
+				Username:       stringOpt(dc.Options, "username"),
+				Password:       envOpt(stringOpt(dc.Options, "password_env")),
+				HostField:      stringOpt(dc.Options, "host_field"),
+				RuleField:      stringOpt(dc.Options, "rule_field"),
+				TagField:       stringOpt(dc.Options, "tag_field"),
+				TimestampField: stringOpt(dc.Options, "timestamp_field"),
+				InsecureTLS:    boolOpt(dc.Options, "insecure_tls"),
+				Timeout:        10 * time.Second,
+			})
+			if err != nil {
+				return nil, err
+			}
+			dets = append(dets, ed)
+		case "splunk":
+			sd, err := detector.NewSplunk(dc.Name, detector.SplunkConfig{
+				URL:          stringOpt(dc.Options, "url"),
+				Token:        envOpt(stringOpt(dc.Options, "token_env")),
+				Username:     stringOpt(dc.Options, "username"),
+				Password:     envOpt(stringOpt(dc.Options, "password_env")),
+				App:          stringOpt(dc.Options, "app"),
+				DefaultIndex: stringOpt(dc.Options, "default_index"),
+				HostField:    stringOpt(dc.Options, "host_field"),
+				PollInterval: durOpt(dc.Options, "poll_interval", 1*time.Second),
+				MaxPolls:     intOpt(dc.Options, "max_polls", 30),
+				InsecureTLS:  boolOpt(dc.Options, "insecure_tls"),
+				Timeout:      30 * time.Second,
+			})
+			if err != nil {
+				return nil, err
+			}
+			dets = append(dets, sd)
 		default:
 			return nil, fmt.Errorf("detector %q: unsupported type %q", dc.Name, dc.Type)
 		}
@@ -361,4 +415,48 @@ func envOpt(envName string) string {
 		return ""
 	}
 	return os.Getenv(envName)
+}
+
+func boolOpt(m map[string]interface{}, key string) bool {
+	if m == nil {
+		return false
+	}
+	v, ok := m[key]
+	if !ok {
+		return false
+	}
+	b, _ := v.(bool)
+	return b
+}
+
+func intOpt(m map[string]interface{}, key string, def int) int {
+	if m == nil {
+		return def
+	}
+	v, ok := m[key]
+	if !ok {
+		return def
+	}
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	default:
+		return def
+	}
+}
+
+func durOpt(m map[string]interface{}, key string, def time.Duration) time.Duration {
+	s := stringOpt(m, key)
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return def
+	}
+	return d
 }
