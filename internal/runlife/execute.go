@@ -39,18 +39,23 @@ func (e *Engine) Execute(ctx context.Context, runID string, actor audit.Actor) e
 		}
 	}
 
-	// Phases waiting/querying/scoring stubbed in M1 — M3 will replace.
 	if r.Phase != "reported" && r.Phase != "failed" {
 		if err := e.store.UpdateRunPhase(ctx, runID, "waiting"); err != nil {
 			return err
 		}
+		if err := e.phaseWait(ctx, runID); err != nil {
+			return e.fail(ctx, runID, actor, err)
+		}
 		if err := e.store.UpdateRunPhase(ctx, runID, "querying"); err != nil {
 			return err
+		}
+		if err := e.phaseQuery(ctx, runID, actor); err != nil {
+			return e.fail(ctx, runID, actor, err)
 		}
 		if err := e.store.UpdateRunPhase(ctx, runID, "scoring"); err != nil {
 			return err
 		}
-		if err := e.phaseFinaliseDetection(ctx, runID); err != nil {
+		if err := e.phaseScore(ctx, runID); err != nil {
 			return e.fail(ctx, runID, actor, err)
 		}
 		if err := e.store.UpdateRunPhase(ctx, runID, "cleanup"); err != nil {
@@ -228,6 +233,9 @@ func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest
 	if err := e.store.UpdateExecution(ctx, exec); err != nil {
 		return err
 	}
+	if err := e.persistExpectedDetections(ctx, exec, t); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -269,31 +277,57 @@ func errString(e error) string {
 	return e.Error()
 }
 
-// phaseFinaliseDetection sets detection_state to no_expectation for any
-// execution whose test had no expectations defined. M3 replaces this with
-// real wait/query/score logic.
-func (e *Engine) phaseFinaliseDetection(ctx context.Context, runID string) error {
-	execs, err := e.store.ListExecutionsForRun(ctx, runID)
+// persistExpectedDetections writes one expected_detections row per
+// expectation on the test, called once at execute-finalise time before the
+// wait phase. We use a stable id derived from execution_id + index so the
+// rows are idempotent across resume.
+func (e *Engine) persistExpectedDetections(ctx context.Context, ex store.Execution, t pack.Test) error {
+	existing, err := e.store.ListExpectedDetectionsForExecution(ctx, ex.ID)
 	if err != nil {
 		return err
 	}
-	for _, ex := range execs {
-		t, err := e.testByID(ex.TestID)
-		if err != nil {
-			return err
-		}
-		if len(t.Expectations) == 0 {
-			ex.DetectionState = "no_expectation"
-		} else {
-			// M1 has no detector; surface honestly as uncertain rather
-			// than caught/missed.
-			ex.DetectionState = "uncertain"
-		}
-		if err := e.store.UpdateExecution(ctx, ex); err != nil {
+	if len(existing) == len(t.Expectations) {
+		return nil // already persisted on a previous run
+	}
+	wait := t.WaitSeconds
+	if wait == 0 {
+		wait = 60
+	}
+	for i, exp := range t.Expectations {
+		expJSON, _ := json.Marshal(exp)
+		if err := e.store.InsertExpectedDetection(ctx, store.ExpectedDetection{
+			ID:              ex.ID + "-e" + itoa(i),
+			ExecutionID:     ex.ID,
+			ExpectationJSON: string(expJSON),
+			WaitSeconds:     wait,
+			State:           "pending",
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
 }
 
 func (e *Engine) fail(ctx context.Context, runID string, actor audit.Actor, cause error) error {

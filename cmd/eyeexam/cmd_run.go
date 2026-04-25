@@ -13,6 +13,7 @@ import (
 
 	"github.com/eavalenzuela/eyeexam/internal/audit"
 	"github.com/eavalenzuela/eyeexam/internal/config"
+	"github.com/eavalenzuela/eyeexam/internal/detector"
 	"github.com/eavalenzuela/eyeexam/internal/inventory"
 	"github.com/eavalenzuela/eyeexam/internal/pack"
 	"github.com/eavalenzuela/eyeexam/internal/runlife"
@@ -110,9 +111,15 @@ func doRun(rf runFlags) error {
 		defer func() { _ = sshR.Close() }()
 	}
 
+	dreg, err := buildDetectorRegistry(cfg)
+	if err != nil {
+		return fmt.Errorf("detector registry: %w", err)
+	}
+
 	eng, err := runlife.New(runlife.Options{
 		Store: st, Audit: al, Registry: reg, Inventory: inv,
 		Runners:       runners,
+		Detectors:     dreg,
 		GlobalRateTPS: cfg.Limits.GlobalTestsPerSecond,
 		PerHostConcur: cfg.Limits.PerHostConcurrency,
 	})
@@ -301,4 +308,57 @@ func hostsUseTransport(inv *inventory.Inventory, transport string) bool {
 		}
 	}
 	return false
+}
+
+func buildDetectorRegistry(cfg config.Config) (*detector.Registry, error) {
+	if len(cfg.Detectors) == 0 {
+		return nil, nil
+	}
+	dets := make([]detector.Detector, 0, len(cfg.Detectors))
+	for _, dc := range cfg.Detectors {
+		switch dc.Type {
+		case "loki":
+			ld, err := detector.NewLoki(dc.Name, detector.LokiConfig{
+				URL:     stringOpt(dc.Options, "url"),
+				Tenant:  stringOpt(dc.Options, "tenant"),
+				Timeout: 10 * time.Second,
+			})
+			if err != nil {
+				return nil, err
+			}
+			dets = append(dets, ld)
+		case "slither":
+			sd, err := detector.NewSlither(dc.Name, detector.SlitherConfig{
+				URL:     stringOpt(dc.Options, "url"),
+				APIKey:  envOpt(stringOpt(dc.Options, "api_key_env")),
+				Timeout: 10 * time.Second,
+			})
+			if err != nil {
+				return nil, err
+			}
+			dets = append(dets, sd)
+		default:
+			return nil, fmt.Errorf("detector %q: unsupported type %q", dc.Name, dc.Type)
+		}
+	}
+	return detector.NewRegistry(dets...), nil
+}
+
+func stringOpt(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
+func envOpt(envName string) string {
+	if envName == "" {
+		return ""
+	}
+	return os.Getenv(envName)
 }

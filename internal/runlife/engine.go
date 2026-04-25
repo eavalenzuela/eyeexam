@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/eavalenzuela/eyeexam/internal/audit"
+	"github.com/eavalenzuela/eyeexam/internal/detector"
 	"github.com/eavalenzuela/eyeexam/internal/inventory"
 	"github.com/eavalenzuela/eyeexam/internal/pack"
 	"github.com/eavalenzuela/eyeexam/internal/rate"
@@ -19,14 +21,19 @@ import (
 )
 
 type Engine struct {
-	store   *store.Store
-	audit   *audit.Logger
-	reg     *pack.Registry
-	inv     *inventory.Inventory
-	runners map[string]runner.Runner
-	limiter *rate.Limiter
-	hostSem *rate.HostSemaphore
-	log     *slog.Logger
+	store     *store.Store
+	audit     *audit.Logger
+	reg       *pack.Registry
+	inv       *inventory.Inventory
+	runners   map[string]runner.Runner
+	detectors *detector.Registry
+	limiter   *rate.Limiter
+	hostSem   *rate.HostSemaphore
+	log       *slog.Logger
+
+	// queryGrace is added to the wait window when querying detectors,
+	// covering minor clock drift between target hosts and the SIEM.
+	queryGrace time.Duration
 }
 
 type Options struct {
@@ -35,6 +42,8 @@ type Options struct {
 	Registry      *pack.Registry
 	Inventory     *inventory.Inventory
 	Runners       map[string]runner.Runner
+	Detectors     *detector.Registry // optional; nil means no detection scoring
+	QueryGrace    time.Duration      // default 10s
 	GlobalRateTPS float64
 	PerHostConcur int
 	Logger        *slog.Logger
@@ -56,15 +65,20 @@ func New(opts Options) (*Engine, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
+	if opts.QueryGrace == 0 {
+		opts.QueryGrace = 10 * time.Second
+	}
 	return &Engine{
-		store:   opts.Store,
-		audit:   opts.Audit,
-		reg:     opts.Registry,
-		inv:     opts.Inventory,
-		runners: opts.Runners,
-		limiter: rate.NewLimiter(opts.GlobalRateTPS),
-		hostSem: rate.NewHostSemaphore(opts.PerHostConcur),
-		log:     opts.Logger,
+		store:      opts.Store,
+		audit:      opts.Audit,
+		reg:        opts.Registry,
+		inv:        opts.Inventory,
+		runners:    opts.Runners,
+		detectors:  opts.Detectors,
+		limiter:    rate.NewLimiter(opts.GlobalRateTPS),
+		hostSem:    rate.NewHostSemaphore(opts.PerHostConcur),
+		queryGrace: opts.QueryGrace,
+		log:        opts.Logger,
 	}, nil
 }
 

@@ -106,7 +106,40 @@ func newRunsShowCmd() *cobra.Command {
 					ex.ID, hn, ex.TestID, ex.ExitCode.Int64,
 					ex.DetectionState, ex.CleanupState, ex.CleanupVerifyState)
 			}
-			return tw.Flush()
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+
+			// Per-expectation detail.
+			anyExpect := false
+			for _, ex := range execs {
+				exps, err := st.ListExpectedDetectionsForExecution(ctx(), ex.ID)
+				if err != nil {
+					return err
+				}
+				if len(exps) == 0 {
+					continue
+				}
+				if !anyExpect {
+					fmt.Println()
+					fmt.Println("expected detections:")
+					anyExpect = true
+				}
+				fmt.Printf("  %s (%s):\n", ex.ID, ex.TestID)
+				for _, ep := range exps {
+					reason := ep.Reason.String
+					det := ep.DetectorName.String
+					if det == "" {
+						det = "-"
+					}
+					if reason != "" {
+						fmt.Printf("    [%s] det=%s — %s\n", ep.State, det, reason)
+					} else {
+						fmt.Printf("    [%s] det=%s\n", ep.State, det)
+					}
+				}
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit JSON")
