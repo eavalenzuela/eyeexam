@@ -91,8 +91,12 @@ func (e *Engine) phaseExecute(ctx context.Context, r store.Run, plan Plan, actor
 		done[ex.HostID+"|"+ex.TestID] = true
 	}
 
+	skippedHosts := map[string]bool{}
 	for _, pt := range plan.Tests {
 		if done[pt.HostID+"|"+pt.TestID] {
+			continue
+		}
+		if skippedHosts[pt.HostID] {
 			continue
 		}
 		if err := e.limiter.Wait(ctx); err != nil {
@@ -104,13 +108,55 @@ func (e *Engine) phaseExecute(ctx context.Context, r store.Run, plan Plan, actor
 		err := e.executeOneTest(ctx, r, pt, actor)
 		e.hostSem.Release(pt.HostID)
 		if err != nil {
-			// Abort the run on per-test infrastructure failures (runner
-			// not found, store write failure). Test exit-code != 0 is
-			// captured as exit_code on the row, not a Go error.
+			// If the failure is a per-host issue (runner missing,
+			// dial failure, host_skipped), record host_skipped and
+			// keep the run going for other hosts. Bail only on
+			// store-level errors.
+			if isHostLevelError(err) {
+				skippedHosts[pt.HostID] = true
+				if e.audit != nil {
+					payload, _ := json.Marshal(map[string]any{
+						"host_id": pt.HostID,
+						"host":    pt.HostName,
+						"reason":  err.Error(),
+					})
+					_, _ = e.audit.Append(ctx, audit.Record{
+						Actor: actor, Engagement: r.EngagementID, RunID: r.ID,
+						Event: "host_skipped", Payload: payload,
+					})
+				}
+				e.log.Warn("host skipped",
+					"host", pt.HostName, "run", r.ID, "reason", err.Error())
+				continue
+			}
 			return err
 		}
 	}
 	return nil
+}
+
+// isHostLevelError returns true for runner / dial / shell errors that scope
+// to a single host. Store-level errors propagate as run-level failures.
+func isHostLevelError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, sub := range []string{"ssh:", "runner local:", "no runner registered", "ssh exec"} {
+		if containsCaseSensitive(msg, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCaseSensitive(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest, actor audit.Actor) error {

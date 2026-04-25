@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/eavalenzuela/eyeexam/internal/audit"
+	"github.com/eavalenzuela/eyeexam/internal/config"
 	"github.com/eavalenzuela/eyeexam/internal/inventory"
 	"github.com/eavalenzuela/eyeexam/internal/pack"
 	"github.com/eavalenzuela/eyeexam/internal/runlife"
@@ -98,6 +100,14 @@ func doRun(rf runFlags) error {
 
 	runners := map[string]runner.Runner{
 		"local": runner.NewLocal(),
+	}
+	if hostsUseTransport(inv, "ssh") {
+		sshR, err := buildSSHRunner(cfg)
+		if err != nil {
+			return fmt.Errorf("ssh runner: %w", err)
+		}
+		runners["ssh"] = sshR
+		defer func() { _ = sshR.Close() }()
 	}
 
 	eng, err := runlife.New(runlife.Options{
@@ -259,4 +269,36 @@ func countDistinctHosts(p *runlife.Plan) int {
 func jsonMarshal(v any) ([]byte, error) {
 	// indirection so cmd_run can avoid importing encoding/json directly twice
 	return jsonEncode(v)
+}
+
+func buildSSHRunner(cfg config.Config) (*runner.SSH, error) {
+	connectTO := parseDurOrDefault(cfg.Runner.SSH.ConnectTimeout, 10*time.Second)
+	cmdTO := parseDurOrDefault(cfg.Runner.SSH.CommandTimeout, 5*time.Minute)
+	return runner.NewSSH(runner.SSHConfig{
+		DefaultUser:    cfg.Runner.SSH.DefaultUser,
+		DefaultKeyPath: cfg.Runner.SSH.DefaultKey,
+		KnownHostsPath: cfg.Runner.SSH.KnownHosts,
+		ConnectTimeout: connectTO,
+		CommandTimeout: cmdTO,
+	})
+}
+
+func parseDurOrDefault(s string, def time.Duration) time.Duration {
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return def
+	}
+	return d
+}
+
+func hostsUseTransport(inv *inventory.Inventory, transport string) bool {
+	for _, h := range inv.Hosts {
+		if h.Transport == transport {
+			return true
+		}
+	}
+	return false
 }

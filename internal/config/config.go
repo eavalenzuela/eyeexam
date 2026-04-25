@@ -48,6 +48,7 @@ type RunnerConfig struct {
 type SSHConfig struct {
 	DefaultUser    string `yaml:"default_user"`
 	DefaultKey     string `yaml:"default_key"`
+	KnownHosts     string `yaml:"known_hosts"`
 	ConnectTimeout string `yaml:"connect_timeout"`
 	CommandTimeout string `yaml:"command_timeout"`
 }

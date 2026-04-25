@@ -200,6 +200,24 @@ func (e *Engine) Plan(ctx context.Context, req PlanRequest) (string, *Plan, erro
 		}); err != nil {
 			return "", nil, err
 		}
+		for _, refusedID := range plan.Refused {
+			p, _ := json.Marshal(map[string]string{"test_id": refusedID})
+			if _, err := e.audit.Append(ctx, audit.Record{
+				Actor: req.Actor, Engagement: req.EngagementID, RunID: runID,
+				Event: "test_refused", Payload: p,
+			}); err != nil {
+				return "", nil, err
+			}
+		}
+		for _, sk := range plan.Skipped {
+			p, _ := json.Marshal(sk)
+			if _, err := e.audit.Append(ctx, audit.Record{
+				Actor: req.Actor, Engagement: req.EngagementID, RunID: runID,
+				Event: "test_skipped", Payload: p,
+			}); err != nil {
+				return "", nil, err
+			}
+		}
 	}
 
 	return runID, plan, nil
