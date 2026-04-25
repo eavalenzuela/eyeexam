@@ -52,6 +52,8 @@ func newRootCmd() *cobra.Command {
 		newAuditCmd(),
 		newMatrixCmd(),
 		newServeCmd(),
+		newScheduleCmd(),
+		newSchedulerCmd(),
 	)
 	return root
 }
