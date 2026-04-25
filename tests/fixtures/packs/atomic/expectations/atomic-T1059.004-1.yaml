@@ -1,0 +1,5 @@
+expected_detections:
+  - sigma_id: rule-fixture-bash
+  - tag: attack.t1059.004
+wait_seconds: 5
+destructiveness: low

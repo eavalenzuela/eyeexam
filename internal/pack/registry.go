@@ -34,6 +34,25 @@ func (r *Registry) AddNative(name, root string) error {
 	return r.add(Pack{Name: name, Path: abs, Source: SourceNative, Tests: tests})
 }
 
+// AddAtomic loads an Atomic Red Team-format pack and registers it. The
+// sidecar layout (expectations/<test-id>.yaml) is honored automatically.
+// Skipped tests (PowerShell on Linux, unsupported executor, platform
+// mismatch) are not registered but are returned for caller reporting.
+func (r *Registry) AddAtomic(name, root string) ([]SkippedTest, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	tests, skipped, err := LoadAtomicDir(abs)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.add(Pack{Name: name, Path: abs, Source: SourceAtomic, Tests: tests}); err != nil {
+		return nil, err
+	}
+	return skipped, nil
+}
+
 func (r *Registry) add(p Pack) error {
 	for _, t := range p.Tests {
 		if existing, dup := r.byID[t.ID]; dup {

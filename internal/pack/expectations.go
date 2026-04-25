@@ -10,9 +10,15 @@ import (
 
 // SidecarExpectations is the on-disk shape of an Atomic Red Team expectations
 // sidecar file: packs/<root>/expectations/<atomic-id>.yaml.
+//
+// Atomic YAML lacks a `destructiveness` field and explicit
+// expected_detections, so eyeexam reads them from a sidecar the operator
+// authors. Setting Destructiveness in the sidecar overrides the loader's
+// default of medium.
 type SidecarExpectations struct {
-	Expectations []Expectation `yaml:"expected_detections"`
-	WaitSeconds  int           `yaml:"wait_seconds"`
+	Expectations    []Expectation `yaml:"expected_detections"`
+	WaitSeconds     int           `yaml:"wait_seconds"`
+	Destructiveness Dest          `yaml:"destructiveness,omitempty"`
 }
 
 // LoadSidecar resolves the expectations sidecar for an Atomic test id, if one

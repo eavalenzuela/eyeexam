@@ -62,13 +62,13 @@ func runPlan(pf planFlags, _ bool) error {
 	if err != nil {
 		return err
 	}
-	reg := pack.NewRegistry(nil)
-	for _, p := range cfg.Packs {
-		if p.Source == "atomic" {
-			return fmt.Errorf("pack %q: atomic source not supported until M4", p.Name)
-		}
-		if err := reg.AddNative(p.Name, p.Path); err != nil {
-			return fmt.Errorf("pack %q: %w", p.Name, err)
+	reg, atomicSkipped, err := buildPackRegistry(cfg)
+	if err != nil {
+		return err
+	}
+	for name, skipped := range atomicSkipped {
+		for _, s := range skipped {
+			fmt.Fprintf(os.Stderr, "atomic pack %q: skipped %s — %s\n", name, s.ID, s.Reason)
 		}
 	}
 
