@@ -13,3 +13,4 @@ audit.key
 audit.key.pub
 .idea/
 .vscode/
+.claude/
