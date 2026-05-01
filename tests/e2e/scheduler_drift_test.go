@@ -83,7 +83,7 @@ wait_seconds: 1
 	}
 	defer st.Close()
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	al, err := audit.Open(filepath.Join(tmp, "audit.log"), priv)
+	al, err := audit.Open(filepath.Join(tmp, "audit.log"), priv, st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}

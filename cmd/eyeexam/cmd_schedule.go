@@ -221,7 +221,7 @@ func newSchedulerRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			al, err := audit.Open(cfg.Audit.LogPath, priv)
+			al, err := audit.Open(cfg.Audit.LogPath, priv, st.DB)
 			if err != nil {
 				return err
 			}

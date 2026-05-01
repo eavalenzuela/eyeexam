@@ -17,9 +17,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 const genesisHashHex = "0000000000000000000000000000000000000000000000000000000000000000"
@@ -38,26 +41,43 @@ type Record struct {
 }
 
 // Logger is an append-only signed log writer. Safe for concurrent use.
+//
+// The file at path is the authoritative, signed source of truth. When db
+// is non-nil, each Append also writes the record into the audit_log
+// SQLite table as a queryable mirror. The file is written and fsync'd
+// first; the DB INSERT is best-effort and logged on failure. On Open,
+// any seq present in the file but missing from db is backfilled.
 type Logger struct {
 	mu       sync.Mutex
 	path     string
 	file     *os.File
 	priv     ed25519.PrivateKey
+	db       *sqlx.DB
 	lastSeq  int64
 	lastHash string
 }
 
 // Open opens (or creates) the log at path with the given private key. It
 // scans the existing file to recover the last seq + hash so subsequent
-// Append calls chain correctly.
-func Open(path string, priv ed25519.PrivateKey) (*Logger, error) {
+// Append calls chain correctly. When db is non-nil, audit_log is also
+// reconciled against the file (missing seqs are backfilled).
+func Open(path string, priv ed25519.PrivateKey, db *sqlx.DB) (*Logger, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("audit: open %s: %w", path, err)
 	}
-	l := &Logger{path: path, file: f, priv: priv, lastHash: genesisHashHex}
+	l := &Logger{path: path, file: f, priv: priv, db: db, lastHash: genesisHashHex}
 
-	// Recover state by streaming existing records.
+	// Recover state by streaming existing records, simultaneously
+	// backfilling any DB rows missing for seqs we observe in the file.
+	var dbMaxSeq int64
+	if db != nil {
+		if err := db.Get(&dbMaxSeq, `SELECT COALESCE(MAX(seq), 0) FROM audit_log`); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("audit: read db max seq: %w", err)
+		}
+	}
+
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("audit: seek: %w", err)
@@ -70,6 +90,12 @@ func Open(path string, priv ed25519.PrivateKey) (*Logger, error) {
 			_ = f.Close()
 			return nil, fmt.Errorf("audit: parse existing log seq>%d: %w", l.lastSeq, err)
 		}
+		if db != nil && r.Seq > dbMaxSeq {
+			if err := insertMirrorRow(db, r); err != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("audit: backfill seq %d: %w", r.Seq, err)
+			}
+		}
 		l.lastSeq = r.Seq
 		l.lastHash = r.Hash
 	}
@@ -80,6 +106,21 @@ func Open(path string, priv ed25519.PrivateKey) (*Logger, error) {
 	if _, err := f.Seek(0, io.SeekEnd); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("audit: seek end: %w", err)
+	}
+
+	// Sanity check: DB must not have rows beyond what's in the file.
+	// That would indicate the file was truncated/replaced or DB tampering.
+	if db != nil {
+		var postDBMax int64
+		if err := db.Get(&postDBMax, `SELECT COALESCE(MAX(seq), 0) FROM audit_log`); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("audit: re-check db max seq: %w", err)
+		}
+		if postDBMax > l.lastSeq {
+			_ = f.Close()
+			return nil, fmt.Errorf("audit: db has seq %d but file ends at %d — file truncated or db tampered",
+				postDBMax, l.lastSeq)
+		}
 	}
 	return l, nil
 }
@@ -143,7 +184,48 @@ func (l *Logger) Append(_ context.Context, r Record) (Record, error) {
 	}
 	l.lastSeq = r.Seq
 	l.lastHash = r.Hash
+
+	// Mirror to SQLite when configured. Best-effort: a DB failure here
+	// leaves the file authoritative; the row will be backfilled at next
+	// Open. We log loudly so the operator can investigate.
+	if l.db != nil {
+		if err := insertMirrorRow(l.db, r); err != nil {
+			slog.Warn("audit: db mirror insert failed; will backfill on next Open",
+				"seq", r.Seq, "event", r.Event, "err", err.Error())
+		}
+	}
 	return r, nil
+}
+
+// insertMirrorRow writes one Record into the audit_log table.
+// Idempotent on the seq primary key — re-inserts return a UNIQUE
+// constraint error which the caller treats as benign at backfill time.
+func insertMirrorRow(db *sqlx.DB, r Record) error {
+	actorJSON, err := json.Marshal(r.Actor)
+	if err != nil {
+		return fmt.Errorf("marshal actor: %w", err)
+	}
+	payload := r.Payload
+	if len(payload) == 0 {
+		payload = json.RawMessage("null")
+	}
+	_, err = db.Exec(`
+		INSERT INTO audit_log (
+		  seq, ts, actor_json, engagement_id, run_id,
+		  event, payload_json, prev_hash, hash, signature
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		r.Seq, r.TS.UTC().Format(time.RFC3339Nano), string(actorJSON),
+		nullStringIfEmpty(r.Engagement), nullStringIfEmpty(r.RunID),
+		r.Event, string(payload), r.PrevHash, r.Hash, r.Signature)
+	return err
+}
+
+func nullStringIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // computeHash returns sha256(prev_hash_bytes || canonical_json_without_hash_sig).

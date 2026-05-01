@@ -80,7 +80,7 @@ A run in phase=failed must be inspected before resuming.`,
 			if err != nil {
 				return fmt.Errorf("load audit key: %w", err)
 			}
-			al, err := audit.Open(cfg.Audit.LogPath, priv)
+			al, err := audit.Open(cfg.Audit.LogPath, priv, st.DB)
 			if err != nil {
 				return err
 			}

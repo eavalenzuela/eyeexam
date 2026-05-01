@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/eavalenzuela/eyeexam/internal/audit"
+	"github.com/eavalenzuela/eyeexam/internal/store"
 )
 
 func newAuditCmd() *cobra.Command {
@@ -35,7 +36,14 @@ func newAuditVerifyCmd() *cobra.Command {
 				return fmt.Errorf("audit pub key: not a PEM file")
 			}
 			pub := ed25519.PublicKey(block.Bytes)
-			res, err := audit.Verify(cfg.Audit.LogPath, pub)
+
+			st, err := store.Open(ctx(), cfg.DBPath())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = st.Close() }()
+
+			res, err := audit.VerifyWithMirror(cfg.Audit.LogPath, pub, st.DB)
 			if err != nil {
 				return err
 			}
@@ -43,7 +51,7 @@ func newAuditVerifyCmd() *cobra.Command {
 				return fmt.Errorf("audit verify FAILED at seq %d: %s",
 					res.FirstBadSeq, res.Reason)
 			}
-			fmt.Printf("audit verify OK (%d records)\n", res.RecordsChecked)
+			fmt.Printf("audit verify OK (%d records, file ↔ db mirror match)\n", res.RecordsChecked)
 			return nil
 		},
 	}

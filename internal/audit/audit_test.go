@@ -24,7 +24,7 @@ func TestAppendAndVerify(t *testing.T) {
 	path := filepath.Join(dir, "audit.log")
 	pub, priv := newKey(t)
 
-	l, err := Open(path, priv)
+	l, err := Open(path, priv, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestTamperDetection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.log")
 	pub, priv := newKey(t)
-	l, err := Open(path, priv)
+	l, err := Open(path, priv, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestResumeChainsCorrectly(t *testing.T) {
 	path := filepath.Join(dir, "audit.log")
 	pub, priv := newKey(t)
 
-	l, err := Open(path, priv)
+	l, err := Open(path, priv, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestResumeChainsCorrectly(t *testing.T) {
 	}
 	_ = l.Close()
 
-	l2, err := Open(path, priv)
+	l2, err := Open(path, priv, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

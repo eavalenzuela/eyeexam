@@ -378,9 +378,27 @@ CREATE INDEX idx_audit_run         ON audit_log(run_id);
 ```
 
 The audit log lives both in SQLite (queryable) and in `audit.log` (file).
-File line N matches `audit_log` row N — both are written transactionally
-(file fsync + DB row inside the same Go critical section; on crash, recovery
-reconciles by hash chain).
+The **file is authoritative**; the SQLite `audit_log` table is a
+queryable mirror.
+
+Append ordering:
+
+1. Compute hash + signature, holding the Logger mutex.
+2. Write the JSON line to the file and `Sync()` (fsync) — at this
+   point the record is durable and signed.
+3. INSERT the same record into `audit_log`. A failure here is logged
+   loudly but does not fail the Append: the file already has the
+   record, and the row will be backfilled on the next `audit.Open`.
+
+Open-time reconciliation walks the file; for any seq present in the
+file but missing from `audit_log`, the row is backfilled. If the DB
+holds a seq beyond what the file contains (file truncated, DB-side
+tampering), `Open` refuses to start.
+
+`audit.VerifyWithMirror` cross-checks the two stores: it walks the
+hash chain in the file (the same as `audit.Verify`), then asserts
+that every (seq, hash) pair in `audit_log` matches the file. The
+file wins on conflict; divergence is reported with the first bad seq.
 
 ### 3.2 Phase state machine
 

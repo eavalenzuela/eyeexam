@@ -44,7 +44,7 @@ func TestActorAppThreading(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(tmp, "audit.log")
-	al, err := audit.Open(logPath, priv)
+	al, err := audit.Open(logPath, priv, st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -43,7 +43,7 @@ func TestRunsResumeAfterInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	al, err := audit.Open(filepath.Join(tmp, "audit.log"), priv)
+	al, err := audit.Open(filepath.Join(tmp, "audit.log"), priv, st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}
