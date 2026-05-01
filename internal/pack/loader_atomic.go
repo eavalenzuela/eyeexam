@@ -178,21 +178,21 @@ func atomicTestID(technique string, index int) string {
 	return fmt.Sprintf("atomic-%s-%d", technique, index)
 }
 
-// executorShellFor returns the eyeexam shell name for an Atomic executor,
-// and whether it is supported on the runner host. PowerShell is supported
-// only when `pwsh` is on PATH; Linux runs without `pwsh` skip the test.
+// executorShellFor maps an Atomic executor name to eyeexam's logical
+// shell. PowerShell is now mapped to "powershell" — runners resolve to
+// `pwsh` on the target host at execute time. Hosts without pwsh
+// installed report a host-level shell error and are skipped for that
+// test. command_prompt and manual remain unsupported.
 func executorShellFor(executor string) (string, bool) {
 	switch strings.ToLower(executor) {
 	case "bash":
 		return "bash", true
 	case "sh":
 		return "sh", true
-	case "command_prompt":
-		return "", false // windows-only; M4 stays linux-first per PLAN.md "Still open"
 	case "powershell":
-		// PowerShell on Linux works via `pwsh` but is an extra runtime
-		// dependency. Skip with a clear marker — IMPLEMENTATION.md §8.2.
-		return "", false
+		return "powershell", true
+	case "command_prompt":
+		return "", false // windows-only; v1 stays linux-first per PLAN.md "Still open"
 	case "manual":
 		return "", false
 	default:

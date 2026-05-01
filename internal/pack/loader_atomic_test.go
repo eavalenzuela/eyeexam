@@ -36,15 +36,23 @@ func TestLoadAtomicHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tests) != 1 {
-		t.Fatalf("expected 1 loadable test, got %d (%+v)", len(tests), tests)
+	// Both the bash test and the powershell test load; pwsh availability
+	// is checked at execute time (host-level skip), not at load time.
+	if len(tests) != 2 {
+		t.Fatalf("expected 2 loadable tests, got %d (%+v)", len(tests), tests)
 	}
-	if len(skipped) != 1 {
-		t.Fatalf("expected 1 skipped test, got %d (%+v)", len(skipped), skipped)
+	if len(skipped) != 0 {
+		t.Fatalf("expected 0 skipped tests, got %d (%+v)", len(skipped), skipped)
 	}
-	tt := tests[0]
+	var tt Test
+	for _, c := range tests {
+		if c.ID == "atomic-T1059.004-1" {
+			tt = c
+			break
+		}
+	}
 	if tt.ID != "atomic-T1059.004-1" {
-		t.Fatalf("id=%s", tt.ID)
+		t.Fatalf("missing atomic-T1059.004-1 in loaded tests")
 	}
 	if tt.Source != SourceAtomic {
 		t.Fatalf("source=%s", tt.Source)
@@ -67,23 +75,26 @@ func TestLoadAtomicHappyPath(t *testing.T) {
 	}
 }
 
-func TestAtomicSkipsPowershell(t *testing.T) {
+func TestAtomicLoadsPowershellTest(t *testing.T) {
+	// Previously: PS-only tests were skipped at load time. Now: they
+	// load with shell="powershell" and the runtime check decides per
+	// host. This guards against re-introducing the load-time skip.
 	root := atomicFixturePath(t)
-	_, skipped, err := LoadAtomicDir(root)
+	tests, _, err := LoadAtomicDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "atomic-T1059.004-2"
-	found := false
-	for _, s := range skipped {
-		if s.ID == want {
-			found = true
-			break
+	for _, c := range tests {
+		if c.ID == want {
+			if len(c.Execute) == 0 || c.Execute[0].Shell != "powershell" {
+				t.Fatalf("PS test %s loaded but Execute[0].Shell=%q (want \"powershell\")",
+					want, c.Execute[0].Shell)
+			}
+			return
 		}
 	}
-	if !found {
-		t.Fatalf("expected powershell-only test %s in skipped list, got %+v", want, skipped)
-	}
+	t.Fatalf("expected PS-only test %s to be loaded, but not found", want)
 }
 
 func TestRefuserBlocksAtomicID(t *testing.T) {

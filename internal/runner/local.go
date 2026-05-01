@@ -18,9 +18,15 @@ type Local struct{}
 
 func NewLocal() *Local { return &Local{} }
 
-func (l *Local) Name() string           { return "local" }
-func (l *Local) Capabilities() []string { return []string{"shell:bash", "shell:sh"} }
-func (l *Local) Close() error           { return nil }
+func (l *Local) Name() string { return "local" }
+func (l *Local) Capabilities() []string {
+	caps := []string{"shell:bash", "shell:sh"}
+	if _, err := exec.LookPath("pwsh"); err == nil {
+		caps = append(caps, "shell:powershell")
+	}
+	return caps
+}
+func (l *Local) Close() error { return nil }
 
 func (l *Local) Execute(ctx context.Context, host inventory.Host, step ExecuteStep) (Result, error) {
 	shell, err := resolveLocalShell(step.Shell)
@@ -96,6 +102,16 @@ func resolveLocalShell(shell string) (string, error) {
 			return p, nil
 		}
 		return "", fmt.Errorf("%w: sh not on PATH", ErrUnsupportedShell)
+	case "powershell", "pwsh":
+		// PowerShell on Linux works via the `pwsh` binary
+		// (Microsoft's package, ships .deb/.rpm). Atomic tests with
+		// `executor: powershell` use this path; without `pwsh` on
+		// PATH the test is skipped at the host level (see runlife
+		// isHostLevelError).
+		if p, err := exec.LookPath("pwsh"); err == nil {
+			return p, nil
+		}
+		return "", fmt.Errorf("%w: pwsh not on PATH (install powershell-core)", ErrUnsupportedShell)
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedShell, shell)
 	}

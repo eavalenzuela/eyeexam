@@ -1123,11 +1123,17 @@ on its roadmap).
    `docs/slither-detector.md` documents only the current stub wire
    format. (This is the *read* direction only — see §7 M7 for why the
    *write* direction was retracted.)
-2. **PowerShell on Linux.** Initial release skips PS-only Atomic tests
-   with a clear marker (PLAN.md "Still open"). Implementation: in M4,
-   `loader_atomic.go` tags PS-only tests with `Skipped: "powershell-not-available"`,
-   `eyeexam plan` shows them in a "skipped" section, and they never enter
-   `executions`.
+2. **PowerShell on Linux.** Resolved post-M9. PS-only Atomic tests
+   now load with `shell: "powershell"`. The local + SSH runners
+   resolve `powershell` to `pwsh` at execute time. On a host without
+   `pwsh` installed, the runner returns `ErrUnsupportedShell`, which
+   `runlife.isHostLevelError` recognizes — the test is recorded as
+   `host_skipped` for that host with reason `pwsh not on PATH (install
+   powershell-core)`, and the run continues for other hosts.
+   `Local.Capabilities()` now advertises `shell:powershell`
+   conditionally based on `pwsh` availability on the eyeexam host
+   itself; the SSH runner advertises it unconditionally because
+   per-host availability isn't known at registration time.
 3. **Windows hosts.** Out of scope for v1 (PLAN.md). The schema's
    `Test.Platforms` field already supports `"windows"`, so Windows pack
    loaders/runners can land later without schema churn.

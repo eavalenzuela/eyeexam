@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -145,6 +146,9 @@ func (e *Engine) phaseExecute(ctx context.Context, r store.Run, plan Plan, actor
 func isHostLevelError(err error) bool {
 	if err == nil {
 		return false
+	}
+	if errors.Is(err, runner.ErrUnsupportedShell) {
+		return true
 	}
 	msg := err.Error()
 	for _, sub := range []string{"ssh:", "runner local:", "no runner registered", "ssh exec"} {

@@ -74,7 +74,14 @@ func NewSSH(cfg SSHConfig) (*SSH, error) {
 
 func (s *SSH) Name() string { return "ssh" }
 
-func (s *SSH) Capabilities() []string { return []string{"shell:bash", "shell:sh"} }
+// Capabilities reports shells the runner is wired for. PowerShell
+// availability is per-host (depends on `pwsh` being installed on the
+// remote); the capability is advertised here so the planner can
+// route PS-only tests through SSH, and the per-host check fails at
+// execute time as a host-level error if pwsh isn't installed.
+func (s *SSH) Capabilities() []string {
+	return []string{"shell:bash", "shell:sh", "shell:powershell"}
+}
 
 func (s *SSH) Close() error {
 	s.mu.Lock()
@@ -94,7 +101,7 @@ func (s *SSH) Execute(ctx context.Context, host inventory.Host, step ExecuteStep
 		return Result{}, fmt.Errorf("ssh runner: host %q transport=%q", host.Name, host.Transport)
 	}
 	switch step.Shell {
-	case "bash", "sh", "":
+	case "bash", "sh", "", "powershell", "pwsh":
 	default:
 		return Result{}, fmt.Errorf("%w: %q", ErrUnsupportedShell, step.Shell)
 	}
@@ -129,8 +136,18 @@ func (s *SSH) Execute(ctx context.Context, host inventory.Host, step ExecuteStep
 	sess.Stderr = &stderr
 
 	shell := step.Shell
-	if shell == "" {
+	switch shell {
+	case "":
 		shell = "sh"
+	case "powershell":
+		// Map eyeexam's logical "powershell" to the binary name on the
+		// remote host. If the remote doesn't have pwsh, sess.Run will
+		// return a non-zero exit; runlife treats that as a normal
+		// test failure (not a host-level skip), so the operator sees
+		// "exit_code=127" rather than a synthetic skip. PS-only tests
+		// only enter the plan against hosts that the operator
+		// explicitly tagged as having pwsh.
+		shell = "pwsh"
 	}
 	res := Result{Started: time.Now().UTC()}
 
