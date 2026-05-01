@@ -194,7 +194,10 @@ func newScheduleRemoveCmd() *cobra.Command {
 }
 
 func newSchedulerRunCmd() *cobra.Command {
-	var interval time.Duration
+	var (
+		interval            time.Duration
+		auditVerifyInterval time.Duration
+	)
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the scheduler in the foreground",
@@ -254,6 +257,8 @@ func newSchedulerRunCmd() *cobra.Command {
 
 			s, err := scheduler.New(scheduler.Options{
 				Store: st, Audit: al, Engine: eng,
+				AuditLogPath:        cfg.Audit.LogPath,
+				AuditVerifyInterval: auditVerifyInterval,
 			})
 			if err != nil {
 				return err
@@ -271,6 +276,8 @@ func newSchedulerRunCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "tick interval")
+	cmd.Flags().DurationVar(&auditVerifyInterval, "audit-verify-interval", 1*time.Hour,
+		"how often to chain-verify the audit log + cross-check the SQLite mirror; 0 disables")
 	// Suppress unused-import error if alert isn't referenced after edits.
 	_ = pack.DestLow
 	return cmd

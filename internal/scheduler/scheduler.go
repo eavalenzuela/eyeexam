@@ -32,6 +32,16 @@ type Options struct {
 	Engine *runlife.Engine // pre-built so all runners + detectors are wired
 	Logger *slog.Logger
 	Now    func() time.Time // injectable for tests
+
+	// AuditLogPath enables periodic chain-integrity verification.
+	// When non-empty and AuditVerifyInterval > 0, a background goroutine
+	// walks the file + cross-checks the SQLite mirror on each interval
+	// and emits an `audit_chain_broken` event if tampering is detected.
+	// Sig verification is skipped here (no pub key passed) — chain
+	// integrity catches the high-value tampers; full sig verification
+	// is the operator-side `eyeexam audit verify`.
+	AuditLogPath        string
+	AuditVerifyInterval time.Duration
 }
 
 type Scheduler struct {
@@ -42,6 +52,9 @@ type Scheduler struct {
 	now    func() time.Time
 
 	parser cron.Parser
+
+	auditLogPath        string
+	auditVerifyInterval time.Duration
 
 	mu     sync.Mutex
 	wg     sync.WaitGroup
@@ -62,12 +75,14 @@ func New(opts Options) (*Scheduler, error) {
 		opts.Now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Scheduler{
-		store:  opts.Store,
-		audit:  opts.Audit,
-		engine: opts.Engine,
-		log:    opts.Logger,
-		now:    opts.Now,
-		parser: cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor),
+		store:               opts.Store,
+		audit:               opts.Audit,
+		engine:              opts.Engine,
+		log:                 opts.Logger,
+		now:                 opts.Now,
+		parser:              cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor),
+		auditLogPath:        opts.AuditLogPath,
+		auditVerifyInterval: opts.AuditVerifyInterval,
 	}, nil
 }
 
@@ -86,6 +101,12 @@ func (s *Scheduler) Run(ctx context.Context, interval time.Duration) error {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	s.log.Info("scheduler started", "interval", interval.String())
+
+	if s.auditLogPath != "" && s.auditVerifyInterval > 0 {
+		s.wg.Add(1)
+		go s.auditVerifyLoop(ctx)
+		s.log.Info("audit verify loop started", "interval", s.auditVerifyInterval.String())
+	}
 
 	// Track per-schedule "next fire" so we don't double-fire within an
 	// interval that's larger than one cron period.
@@ -108,6 +129,75 @@ func (s *Scheduler) Run(ctx context.Context, interval time.Duration) error {
 // Tick is exposed for tests: drive one tick and return.
 func (s *Scheduler) Tick(ctx context.Context, nextFire map[string]time.Time) error {
 	return s.tick(ctx, nextFire)
+}
+
+// VerifyAuditOnce drives one chain-integrity check + cross-check
+// against the SQLite mirror. Test seam; production callers go
+// through the timer-driven auditVerifyLoop. Returns the verify
+// result (OK or first divergent seq) plus any I/O error.
+func (s *Scheduler) VerifyAuditOnce(ctx context.Context) (audit.VerifyResult, error) {
+	if s.auditLogPath == "" {
+		return audit.VerifyResult{}, errors.New("scheduler: audit log path not configured")
+	}
+	res, err := audit.VerifyWithMirror(s.auditLogPath, nil, s.store.DB)
+	if err != nil {
+		return res, err
+	}
+	if !res.OK {
+		s.handleAuditBreak(ctx, res)
+	}
+	return res, nil
+}
+
+func (s *Scheduler) auditVerifyLoop(ctx context.Context) {
+	defer s.wg.Done()
+	t := time.NewTicker(s.auditVerifyInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			res, err := audit.VerifyWithMirror(s.auditLogPath, nil, s.store.DB)
+			if err != nil {
+				s.log.Warn("audit verify errored (will retry next interval)",
+					"err", err.Error())
+				continue
+			}
+			if !res.OK {
+				s.handleAuditBreak(ctx, res)
+			}
+		}
+	}
+}
+
+// handleAuditBreak fires when the chain integrity check failed.
+// Logs loud, appends an audit_chain_broken record (which itself
+// extends the live chain past the break — the broken section is
+// permanent and the next verify still reports it), and lets the
+// daemon keep running. Refusing to keep running on transient
+// corruption (disk error, partial write recovered next boot) is
+// worse than the alternative; an attacker who could mute the
+// scheduler that way has bigger options anyway.
+func (s *Scheduler) handleAuditBreak(ctx context.Context, res audit.VerifyResult) {
+	s.log.Error("audit chain integrity check FAILED",
+		"first_bad_seq", res.FirstBadSeq,
+		"reason", res.Reason,
+		"records_checked", res.RecordsChecked)
+
+	if s.audit == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"first_bad_seq":   res.FirstBadSeq,
+		"reason":          res.Reason,
+		"records_checked": res.RecordsChecked,
+	})
+	_, _ = s.audit.Append(ctx, audit.Record{
+		Actor:   audit.Actor{OSUser: "scheduler", OSUID: 0},
+		Event:   "audit_chain_broken",
+		Payload: payload,
+	})
 }
 
 func (s *Scheduler) tick(ctx context.Context, nextFire map[string]time.Time) error {

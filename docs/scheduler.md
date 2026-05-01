@@ -89,6 +89,34 @@ key on `schedule`, `run_id`, and the per-`Regression` `technique_id`.
   fire after that uses the same authorization until the schedule is
   removed.
 
+## Audit chain verification
+
+The scheduler runs a periodic chain-integrity check on the audit log
+in a background goroutine. Default cadence is 1 hour; configurable
+via `--audit-verify-interval` (set to `0` to disable):
+
+```bash
+eyeexam scheduler run --interval 30s --audit-verify-interval 15m
+```
+
+Each tick walks `audit.log` from genesis, recomputes hashes, and
+cross-checks the `audit_log` SQLite mirror. On failure the daemon:
+
+1. Logs an `ERROR` line via slog with the first bad seq + reason —
+   pipe this into your usual log pipeline; this is the alert.
+2. Appends an `audit_chain_broken` audit record (which extends the
+   live chain past the break — the broken section stays broken;
+   the next verify still reports it).
+3. Keeps running. Refusing to fire schedules on transient corruption
+   would be worse than the alternative; an attacker who could mute
+   the scheduler that way already has bigger options. See
+   `docs/audit-log.md` for the threat-model rationale.
+
+Sig verification (ed25519 against `audit.key.pub`) is skipped in the
+daemon loop — chain integrity is the high-value check. Run
+`eyeexam audit verify` manually for full sig verification when
+investigating a flagged chain break.
+
 `/loop` (the periodic-task helper in this CLI) is **not** the scheduler
 — `/loop` is a developer-facing meta-feature; eyeexam's scheduler is
 the production one.

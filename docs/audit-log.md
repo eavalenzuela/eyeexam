@@ -228,7 +228,11 @@ that way keeps the tool's defensive posture intact.
   is detectable.
 - **Periodic verify in CI / cron.** A nightly `eyeexam audit verify`
   that pages on failure catches tampering early. The verify is
-  read-only and safe to run while eyeexam is also running.
+  read-only and safe to run while eyeexam is also running. If you
+  run `eyeexam scheduler run`, the daemon already does this for you
+  on `--audit-verify-interval` (default 1h); it logs `ERROR` and
+  appends an `audit_chain_broken` record on failure. See
+  `docs/scheduler.md` for details.
 - **`/healthz`-style monitoring.** If you graph BAS metrics, also
   graph `audit_log` row count over time. A drop is a red flag.
 
