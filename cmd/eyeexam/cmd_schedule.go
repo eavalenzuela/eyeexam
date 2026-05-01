@@ -53,6 +53,7 @@ func newScheduleAddCmd() *cobra.Command {
 		ntfy      []string
 		discord   []string
 		ntfyTopic string
+		actorApp  string
 	)
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -74,6 +75,13 @@ func newScheduleAddCmd() *cobra.Command {
 			actor, err := audit.ActorFromOS(ctx())
 			if err != nil {
 				return err
+			}
+			if actorApp != "" {
+				if err := audit.ValidateAppUser(actorApp); err != nil {
+					return err
+				}
+				v := actorApp
+				actor.AppUser = &v
 			}
 
 			selJSON, _ := json.Marshal(inventory.Selector{
@@ -109,6 +117,10 @@ func newScheduleAddCmd() *cobra.Command {
 				Enabled:      1,
 				AuthorizedBy: actor.String(),
 			}
+			if actorApp != "" {
+				sc.AppUser.Valid = true
+				sc.AppUser.String = actorApp
+			}
 			if err := st.InsertSchedule(ctx(), sc); err != nil {
 				return err
 			}
@@ -128,6 +140,7 @@ func newScheduleAddCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&ntfy, "ntfy", nil, "ntfy.sh server URL (repeatable)")
 	cmd.Flags().StringVar(&ntfyTopic, "ntfy-topic", "eyeexam", "ntfy topic")
 	cmd.Flags().StringSliceVar(&discord, "discord", nil, "discord webhook URL (repeatable)")
+	cmd.Flags().StringVar(&actorApp, "actor-app", "", "human identity to record on each scheduled fire (e.g. when the scheduler runs as a service account)")
 	return cmd
 }
 

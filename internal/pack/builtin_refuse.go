@@ -1,8 +1,8 @@
 package pack
 
-// Refuser is the hard-refuse list. The mechanism is in place from M1; the
-// concrete entries are populated in M4 once Atomic Red Team support arrives
-// and we have real test ids to evaluate. Until then the list is empty.
+// Refuser is the hard-refuse list. Mechanism landed in M1; the curated
+// entries below were populated alongside M4 (Atomic Red Team support). See
+// builtinRefuseList for the categories and rationale.
 type Refuser struct {
 	entries map[string]string // id -> reason
 }

@@ -158,6 +158,12 @@ func (s *Scheduler) fire(ctx context.Context, sc store.Schedule) error {
 	// rather than the OS user running the daemon — schedule pre-auth is
 	// the load-bearing identity for scheduled runs.
 	actor := audit.Actor{OSUser: sc.AuthorizedBy, OSUID: 0}
+	var appUser *string
+	if sc.AppUser.Valid && sc.AppUser.String != "" {
+		v := sc.AppUser.String
+		actor.AppUser = &v
+		appUser = &v
+	}
 
 	priorRunID, _ := s.store.PriorRunForSchedule(ctx, sc, "")
 
@@ -168,6 +174,7 @@ func (s *Scheduler) fire(ctx context.Context, sc store.Schedule) error {
 		PackName:     sc.PackName,
 		Selector:     sel,
 		Actor:        actor,
+		AppUser:      appUser,
 	})
 	if err != nil {
 		return fmt.Errorf("plan: %w", err)

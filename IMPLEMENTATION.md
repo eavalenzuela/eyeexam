@@ -214,8 +214,13 @@ eyeexam/
 ### 2.6 Audit-log actor identity
 
 Actor identity is captured as **two fields**, both written to every audit
-record. v1 populates only the OS-user field; the application-user field is
-schema-reserved for a future M9+ that adds a frontend with login.
+record. The OS-user field is always derived from `os/user.Current()`; the
+application-user field is optional and populated when the operator passes
+`--actor-app <name>` to `eyeexam run` or to `eyeexam schedule add`. The
+flag exists so that runs invoked by a service account (CI, scheduler under
+systemd) can still attribute actions to the human who authorized them. A
+future frontend with session-based login would also write into this same
+field — the schema doesn't change.
 
 ```json
 {
@@ -758,7 +763,7 @@ eyeexam plan   --pack <name> [--tag <t>] [--hosts ...] [--tests ...] [--seed N]
 eyeexam run    --pack <name> [...same...] \
                --authorized --engagement <id> \
                [--max-dest low|medium|high] [--dry-run] [--seed N] [--yes] \
-               [--actor-app <name>]              # M9+; ignored in v1
+               [--actor-app <name>]              # populates audit Actor.AppUser + runs.app_user
 eyeexam runs   list   [--engagement <id>] [--since <dur>]
 eyeexam runs   show   <run-id> [--json]
 eyeexam runs   resume <run-id>
@@ -1115,11 +1120,13 @@ gates behind a config-flag (`accept_bas_execute: true`) that defaults off.
    show up in PRs.)
 5. **Pack signing.** Future work; not in scope for v1. eyeexam-attackpacks
    should grow signed releases later.
-6. **Hard-refuse list contents.** Deferred until M4. The mechanism
+6. **Hard-refuse list contents.** Resolved in M4. Mechanism landed in M1
    (`internal/pack/builtin_refuse.go`, plan-time rejection, audit
-   `event:"test_refused"`) lands in M1; the actual refused IDs are
-   populated when Atomic Red Team support arrives in M4 and we have real
-   tests to evaluate.
+   `event:"test_refused"`); the curated id set was populated alongside
+   Atomic Red Team support and now covers domain-controller modification,
+   EDR-disable, and bootloader/firmware categories. Operators extend the
+   list by editing the file in their fork; moving it to config is a
+   future consideration.
 
 ---
 

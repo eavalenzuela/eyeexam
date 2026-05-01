@@ -18,6 +18,7 @@ type Schedule struct {
 	AlertsJSON   string         `db:"alerts_json"`
 	Enabled      int64          `db:"enabled"`
 	AuthorizedBy string         `db:"authorized_by"`
+	AppUser      sql.NullString `db:"app_user"`
 	LastRunAt    sql.NullString `db:"last_run_at"`
 	LastRunID    sql.NullString `db:"last_run_id"`
 	CreatedAt    string         `db:"created_at"`
@@ -36,11 +37,11 @@ func (s *Store) InsertSchedule(ctx context.Context, sc Schedule) error {
 	_, err := s.DB.NamedExecContext(ctx, `
 		INSERT INTO schedules (
 		  id, name, cron_expr, engagement_id, pack_name, max_dest,
-		  selector_json, alerts_json, enabled, authorized_by,
+		  selector_json, alerts_json, enabled, authorized_by, app_user,
 		  last_run_at, last_run_id, created_at
 		) VALUES (
 		  :id, :name, :cron_expr, :engagement_id, :pack_name, :max_dest,
-		  :selector_json, :alerts_json, :enabled, :authorized_by,
+		  :selector_json, :alerts_json, :enabled, :authorized_by, :app_user,
 		  :last_run_at, :last_run_id, :created_at
 		)
 	`, sc)

@@ -28,6 +28,7 @@ type runFlags struct {
 	yes           bool
 	iReallyMeanIt bool
 	dryRun        bool
+	actorApp      string
 }
 
 func newRunCmd() *cobra.Command {
@@ -45,6 +46,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&rf.yes, "yes", false, "skip the confirmation prompt for low/medium destructiveness runs")
 	cmd.Flags().BoolVar(&rf.iReallyMeanIt, "i-really-mean-it", false, "required with --yes for high-destructiveness runs")
 	cmd.Flags().BoolVar(&rf.dryRun, "dry-run", false, "print the plan and exit (same as 'eyeexam plan')")
+	cmd.Flags().StringVar(&rf.actorApp, "actor-app", "", "human identity to record alongside the OS user (e.g. when invoked by a service account)")
 	return cmd
 }
 
@@ -97,6 +99,15 @@ func doRun(rf runFlags) error {
 	actor, err := audit.ActorFromOS(ctx())
 	if err != nil {
 		return err
+	}
+	var appUser *string
+	if rf.actorApp != "" {
+		if err := audit.ValidateAppUser(rf.actorApp); err != nil {
+			return err
+		}
+		v := rf.actorApp
+		actor.AppUser = &v
+		appUser = &v
 	}
 
 	runners := map[string]runner.Runner{
@@ -151,8 +162,9 @@ func doRun(rf runFlags) error {
 			Hosts: rf.hosts, Tags: rf.tags, NotTags: rf.notTags,
 			Tests: rf.tests, NotTests: rf.notTests,
 		},
-		Seed:  rf.seed,
-		Actor: actor,
+		Seed:    rf.seed,
+		Actor:   actor,
+		AppUser: appUser,
 	}
 
 	runID, plan, err := eng.Plan(ctx(), planReq)
