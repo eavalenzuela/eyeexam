@@ -79,6 +79,7 @@ eyeexam runs list [--engagement <id>] | show <run-id> [--json]
 eyeexam matrix [--out matrix.html] [--json] [--window-days 30] [--stix <path>]
 eyeexam serve  [--listen 127.0.0.1:8088] [--insecure-public]
 eyeexam audit  verify
+eyeexam report coverage --engagement <id> [--since 30d] [--format md|json] [--out <path>]
 eyeexam schedule add | list | remove
 eyeexam scheduler run [--interval 30s]
 ```

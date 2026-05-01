@@ -790,6 +790,7 @@ eyeexam runs   list   [--engagement <id>] [--since <dur>]
 eyeexam runs   show   <run-id> [--json]
 eyeexam runs   resume <run-id>
 eyeexam matrix [--since 30d] [--tag <t>] [--out matrix.html|matrix.json]
+eyeexam report coverage [--engagement <id>] [--since <dur>] [--format md|json] [--out <path>]
 eyeexam audit  verify [--from-seq N] [--to-seq M]
 eyeexam audit  show   [--run <id>] [--engagement <id>] [--event <name>] \
                       [--actor <substr>] [--since <dur>] [--limit N] [--json]

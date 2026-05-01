@@ -15,6 +15,7 @@ this directory holds the deeper material.
 | Actor identity (`--actor-app`)     | [`actor-app.md`](./actor-app.md)          |
 | Audit log (model + verify + why no pruning) | [`audit-log.md`](./audit-log.md)    |
 | Pack signing (wire format + key trust)      | [`pack-signing.md`](./pack-signing.md) |
+| Reports (coverage + future audit/packs)     | [`reports.md`](./reports.md)         |
 
 Two cross-cutting reads worth the time:
 
