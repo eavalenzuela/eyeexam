@@ -20,21 +20,31 @@ func TestIsHostLevelErrorRecognizesUnsupportedShell(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"unsupported shell direct",
+		{
+			"unsupported shell direct",
 			fmt.Errorf("%w: pwsh not on PATH", runner.ErrUnsupportedShell),
-			true},
-		{"unsupported shell wrapped",
+			true,
+		},
+		{
+			"unsupported shell wrapped",
 			fmt.Errorf("runner local: %w: pwsh not on PATH", runner.ErrUnsupportedShell),
-			true},
-		{"ssh dial",
+			true,
+		},
+		{
+			"ssh dial",
 			errors.New("ssh: handshake failed"),
-			true},
-		{"runner local prefix",
+			true,
+		},
+		{
+			"runner local prefix",
 			errors.New("runner local: exec error"),
-			true},
-		{"unrelated error",
+			true,
+		},
+		{
+			"unrelated error",
 			errors.New("disk full"),
-			false},
+			false,
+		},
 	}
 	for _, tc := range cases {
 		got := isHostLevelError(tc.err)
