@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lint + test + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # .golangci.yml uses v2 schema (`version: "2"`, `linters.default`),
+          # so pin a v2 release. Note: Makefile currently pins v1.62.2 in
+          # `make tools` — that's a separate drift to fix.
+          version: v2.1.6
+          args: --timeout=5m
+
+      - name: go test -race
+        run: go test -race -count=1 ./...
+
+      - name: go build
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 go build -trimpath -o bin/eyeexam ./cmd/eyeexam
+          ./bin/eyeexam version
+
+      - name: go mod tidy (drift check)
+        run: |
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "::error::go.mod / go.sum drift — run 'go mod tidy' and commit"
+            git diff go.mod go.sum
+            exit 1
+          fi
