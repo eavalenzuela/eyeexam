@@ -210,7 +210,7 @@ func newSchedulerRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reg, _, err := buildPackRegistry(cfg)
+			reg, _, unsignedPacks, err := buildPackRegistry(cfg)
 			if err != nil {
 				return err
 			}
@@ -229,6 +229,9 @@ func newSchedulerRunCmd() *cobra.Command {
 				return err
 			}
 			defer func() { _ = al.Close() }()
+
+			daemonActor := audit.Actor{OSUser: "scheduler", OSUID: 0}
+			emitUnsignedPackAudit(ctx(), al, daemonActor, cfg.Engagement.ID, unsignedPacks)
 
 			runners := map[string]runner.Runner{"local": runner.NewLocal()}
 			if hostsUseTransport(inv, "ssh") {

@@ -1,10 +1,14 @@
 package pack
 
 import (
+	"crypto/ed25519"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/eavalenzuela/eyeexam/internal/pack/signature"
 )
 
 // Registry is the loaded set of packs. Tests are addressed as "<test-id>"
@@ -37,14 +41,61 @@ func (r *Registry) AddNative(name, root string) error {
 
 // AddEmbedded registers a native pack whose YAML files live in fsys
 // (typically an embed.FS). Used for the binary-bundled builtin pack.
-// Pack signing (when introduced) does not apply: the binary itself is
-// the trust boundary for embedded content.
+// Pack signing does not apply: the binary itself is the trust
+// boundary for embedded content.
 func (r *Registry) AddEmbedded(name string, fsys fs.FS) error {
 	tests, err := LoadNativeFS(fsys)
 	if err != nil {
 		return err
 	}
 	return r.add(Pack{Name: name, Path: "<embedded>", Source: SourceNative, Tests: tests})
+}
+
+// AddNativeSigned loads a native pack and verifies its MANIFEST.sig
+// against the supplied trusted public keys. Returns ErrUnsignedPack
+// if MANIFEST or MANIFEST.sig are missing; signature.ErrNoTrustedKey
+// if neither key signed the manifest; a wrapped descriptive error if
+// declared files drift, are missing, or extra YAML is smuggled in.
+//
+// To load a pack that is intentionally unsigned (e.g. an Atomic Red
+// Team clone the operator manages), use AddNative + record an audit
+// event upstream — this function refuses unsigned packs by design.
+func (r *Registry) AddNativeSigned(name, root string, pubs []ed25519.PublicKey) error {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	if err := signature.VerifyPack(os.DirFS(abs), pubs); err != nil {
+		return fmt.Errorf("pack %q: %w", name, err)
+	}
+	tests, err := LoadNativeDir(abs)
+	if err != nil {
+		return err
+	}
+	return r.add(Pack{Name: name, Path: abs, Source: SourceNative, Tests: tests})
+}
+
+// AddAtomicSigned is the signed counterpart of AddAtomic. Atomic Red
+// Team upstream is not signed; operators who run signed atomic packs
+// (e.g. an internally-mirrored, signed catalog) use this. Unsigned
+// atomic packs continue to use AddAtomic with explicit operator
+// opt-in (audited at the call site).
+func (r *Registry) AddAtomicSigned(name, root string, pubs []ed25519.PublicKey) ([]SkippedTest, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := signature.VerifyPack(os.DirFS(abs), pubs); err != nil {
+		return nil, fmt.Errorf("pack %q: %w", name, err)
+	}
+	tests, skipped, err := LoadAtomicDir(abs)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.add(Pack{Name: name, Path: abs, Source: SourceAtomic, Tests: tests}); err != nil {
+		return nil, err
+	}
+	return skipped, nil
 }
 
 // AddAtomic loads an Atomic Red Team-format pack and registers it. The

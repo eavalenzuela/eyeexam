@@ -1142,8 +1142,14 @@ on its roadmap).
    refresh is a manual `make refresh-attack` that re-downloads from MITRE
    and commits the new JSON. (Not auto-updated — we want bundle changes to
    show up in PRs.)
-5. **Pack signing.** Future work; not in scope for v1. eyeexam-attackpacks
-   should grow signed releases later.
+5. **Pack signing.** Resolved post-M9. ed25519 signature over a
+   deterministic MANIFEST text file. `internal/pack/signature` is the
+   verifier; `Registry.AddNativeSigned` and `Registry.AddAtomicSigned`
+   gate the load on `MANIFEST.sig` validating against any trusted key
+   in `cfg.pack_keys`. Per-pack `unsigned: true` opt-out emits a
+   `pack_loaded_unsigned` audit event on every load. Embedded builtin
+   pack is exempt by construction (not loaded from disk). See
+   `docs/pack-signing.md`.
 6. **Hard-refuse list contents.** Resolved in M4. Mechanism landed in M1
    (`internal/pack/builtin_refuse.go`, plan-time rejection, audit
    `event:"test_refused"`); the curated id set was populated alongside

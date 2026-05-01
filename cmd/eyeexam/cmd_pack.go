@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"crypto/ed25519"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/eavalenzuela/eyeexam/internal/audit"
 	"github.com/eavalenzuela/eyeexam/internal/config"
 	"github.com/eavalenzuela/eyeexam/internal/pack"
 	"github.com/eavalenzuela/eyeexam/internal/pack/embedded"
@@ -31,7 +36,7 @@ func newPackListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reg, _, err := buildPackRegistry(cfg)
+			reg, _, _, err := buildPackRegistry(cfg)
 			if err != nil {
 				return err
 			}
@@ -168,37 +173,111 @@ func writeConfigYAML(path string, cfg config.Config) error {
 	return os.WriteFile(path, b, 0o600)
 }
 
-// buildPackRegistry constructs a registry from cfg.Packs, supporting both
-// native and atomic sources. The binary-embedded "builtin" pack is always
-// added first; operators don't list it in config. Skipped atomic tests
-// (per-pack) are returned.
-func buildPackRegistry(cfg config.Config) (*pack.Registry, map[string][]pack.SkippedTest, error) {
+// buildPackRegistry constructs a registry from cfg.Packs, supporting
+// native and atomic sources. The binary-embedded "builtin" pack is
+// always added first; operators don't list it in config.
+//
+// Disk-loaded packs require a valid MANIFEST.sig that verifies against
+// at least one trusted public key in cfg.pack_keys. Operators can
+// explicitly opt out per-pack by setting `unsigned: true` in the config
+// entry; the names of any such packs are returned so the caller can
+// emit a `pack_loaded_unsigned` audit record on every load. Skipped
+// atomic tests (per-pack) are returned in the second slot.
+func buildPackRegistry(cfg config.Config) (*pack.Registry, map[string][]pack.SkippedTest, []string, error) {
 	reg := pack.NewRegistry(nil)
 	if err := reg.AddEmbedded("builtin", embedded.BuiltinFS()); err != nil {
-		return nil, nil, fmt.Errorf("builtin pack: %w", err)
+		return nil, nil, nil, fmt.Errorf("builtin pack: %w", err)
 	}
+
+	pubs, err := loadTrustedPackKeys(cfg.PackKeys)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	skipped := map[string][]pack.SkippedTest{}
+	var unsignedLoads []string
 	for _, p := range cfg.Packs {
-		// Refuse a config "builtin" entry with a path — the embedded
-		// pack is the only "builtin" eyeexam knows about, and silently
-		// honoring a disk path would weaken pack-signing's trust model.
+		// Refuse a config "builtin" entry — the embedded pack is the
+		// only "builtin" eyeexam knows about; honoring a disk path
+		// would weaken the trust model.
 		if p.Name == "builtin" {
-			return nil, nil, fmt.Errorf("pack %q: name reserved for the embedded builtin pack — remove from config", p.Name)
+			return nil, nil, nil, fmt.Errorf("pack %q: name reserved for the embedded builtin pack — remove from config", p.Name)
+		}
+
+		if p.Unsigned {
+			switch p.Source {
+			case "native", "":
+				if err := reg.AddNative(p.Name, p.Path); err != nil {
+					return nil, nil, nil, fmt.Errorf("pack %q: %w", p.Name, err)
+				}
+			case "atomic":
+				sk, err := reg.AddAtomic(p.Name, p.Path)
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("pack %q: %w", p.Name, err)
+				}
+				skipped[p.Name] = sk
+			default:
+				return nil, nil, nil, fmt.Errorf("pack %q: unknown source %q", p.Name, p.Source)
+			}
+			unsignedLoads = append(unsignedLoads, p.Name)
+			continue
+		}
+
+		// Signed path: trusted-keys list must be non-empty.
+		if len(pubs) == 0 {
+			return nil, nil, nil, fmt.Errorf("pack %q requires a signature but cfg.pack_keys is empty (or set unsigned: true to opt out — see docs/pack-signing.md)", p.Name)
 		}
 		switch p.Source {
 		case "native", "":
-			if err := reg.AddNative(p.Name, p.Path); err != nil {
-				return nil, nil, fmt.Errorf("pack %q: %w", p.Name, err)
+			if err := reg.AddNativeSigned(p.Name, p.Path, pubs); err != nil {
+				return nil, nil, nil, err // already wrapped with pack name
 			}
 		case "atomic":
-			sk, err := reg.AddAtomic(p.Name, p.Path)
+			sk, err := reg.AddAtomicSigned(p.Name, p.Path, pubs)
 			if err != nil {
-				return nil, nil, fmt.Errorf("pack %q: %w", p.Name, err)
+				return nil, nil, nil, err
 			}
 			skipped[p.Name] = sk
 		default:
-			return nil, nil, fmt.Errorf("pack %q: unknown source %q", p.Name, p.Source)
+			return nil, nil, nil, fmt.Errorf("pack %q: unknown source %q", p.Name, p.Source)
 		}
 	}
-	return reg, skipped, nil
+	return reg, skipped, unsignedLoads, nil
+}
+
+// emitUnsignedPackAudit writes one `pack_loaded_unsigned` event per
+// unsigned pack name, on every Open of the audit logger. Operators
+// see the event in `eyeexam audit show --event pack_loaded_unsigned`,
+// so silently flipping a pack to unsigned and running it is visible.
+func emitUnsignedPackAudit(ctx context.Context, al *audit.Logger, actor audit.Actor, engagement string, names []string) {
+	if al == nil || len(names) == 0 {
+		return
+	}
+	for _, n := range names {
+		payload, _ := json.Marshal(map[string]string{"pack": n})
+		_, _ = al.Append(ctx, audit.Record{
+			Actor: actor, Engagement: engagement,
+			Event: "pack_loaded_unsigned", Payload: payload,
+		})
+	}
+}
+
+func loadTrustedPackKeys(paths []string) ([]ed25519.PublicKey, error) {
+	var out []ed25519.PublicKey
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil, fmt.Errorf("pack key %s: %w", p, err)
+		}
+		block, _ := pem.Decode(b)
+		if block == nil {
+			return nil, fmt.Errorf("pack key %s: not a PEM file", p)
+		}
+		if len(block.Bytes) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("pack key %s: wrong size %d (want %d)",
+				p, len(block.Bytes), ed25519.PublicKeySize)
+		}
+		out = append(out, ed25519.PublicKey(block.Bytes))
+	}
+	return out, nil
 }

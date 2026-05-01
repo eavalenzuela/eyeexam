@@ -20,6 +20,7 @@ type Config struct {
 	Detectors  []DetectorConfig `yaml:"detectors"`
 	Inventory  InventoryConfig  `yaml:"inventory"`
 	Packs      []PackConfig     `yaml:"packs"`
+	PackKeys   []string         `yaml:"pack_keys"` // PEM ed25519 pubkey paths used to verify MANIFEST.sig
 	Limits     Limits           `yaml:"limits"`
 	UI         UIConfig         `yaml:"ui"`
 }
@@ -67,9 +68,10 @@ type InventoryConfig struct {
 }
 
 type PackConfig struct {
-	Name   string `yaml:"name"`
-	Path   string `yaml:"path"`
-	Source string `yaml:"source"` // "native"|"atomic"
+	Name     string `yaml:"name"`
+	Path     string `yaml:"path"`
+	Source   string `yaml:"source"`             // "native"|"atomic"
+	Unsigned bool   `yaml:"unsigned,omitempty"` // opt-out of signature verification (audit'd at every load)
 }
 
 type Limits struct {

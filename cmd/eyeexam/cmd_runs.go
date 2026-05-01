@@ -48,7 +48,7 @@ A run in phase=failed must be inspected before resuming.`,
 			if err != nil {
 				return err
 			}
-			reg, atomicSkipped, err := buildPackRegistry(cfg)
+			reg, atomicSkipped, unsignedPacks, err := buildPackRegistry(cfg)
 			if err != nil {
 				return err
 			}
@@ -97,6 +97,8 @@ A run in phase=failed must be inspected before resuming.`,
 				v := actorApp
 				actor.AppUser = &v
 			}
+
+			emitUnsignedPackAudit(ctx(), al, actor, r.EngagementID, unsignedPacks)
 
 			runners := map[string]runner.Runner{"local": runner.NewLocal()}
 			if hostsUseTransport(inv, "ssh") {

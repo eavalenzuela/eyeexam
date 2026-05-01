@@ -62,7 +62,7 @@ func runPlan(pf planFlags, _ bool) error {
 	if err != nil {
 		return err
 	}
-	reg, atomicSkipped, err := buildPackRegistry(cfg)
+	reg, atomicSkipped, unsigned, err := buildPackRegistry(cfg)
 	if err != nil {
 		return err
 	}
@@ -70,6 +70,9 @@ func runPlan(pf planFlags, _ bool) error {
 		for _, s := range skipped {
 			fmt.Fprintf(os.Stderr, "atomic pack %q: skipped %s — %s\n", name, s.ID, s.Reason)
 		}
+	}
+	for _, name := range unsigned {
+		fmt.Fprintf(os.Stderr, "warning: pack %q loaded UNSIGNED (audited at run/schedule time)\n", name)
 	}
 
 	allowed, refused, err := reg.FromPack(pf.pack)

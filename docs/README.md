@@ -14,6 +14,7 @@ this directory holds the deeper material.
 | Slither API requirements (for slither maintainers) | [`slither-api-requirements.md`](./slither-api-requirements.md) |
 | Actor identity (`--actor-app`)     | [`actor-app.md`](./actor-app.md)          |
 | Audit log (model + verify + why no pruning) | [`audit-log.md`](./audit-log.md)    |
+| Pack signing (wire format + key trust)      | [`pack-signing.md`](./pack-signing.md) |
 
 Two cross-cutting reads worth the time:
 

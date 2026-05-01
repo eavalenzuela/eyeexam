@@ -70,7 +70,7 @@ func doRun(rf runFlags) error {
 	if err != nil {
 		return err
 	}
-	reg, atomicSkipped, err := buildPackRegistry(cfg)
+	reg, atomicSkipped, unsignedPacks, err := buildPackRegistry(cfg)
 	if err != nil {
 		return err
 	}
@@ -109,6 +109,8 @@ func doRun(rf runFlags) error {
 		actor.AppUser = &v
 		appUser = &v
 	}
+
+	emitUnsignedPackAudit(ctx(), al, actor, rf.engagement, unsignedPacks)
 
 	runners := map[string]runner.Runner{
 		"local": runner.NewLocal(),
