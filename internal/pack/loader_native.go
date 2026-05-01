@@ -54,14 +54,6 @@ func LoadNativeFS(fsys fs.FS) ([]Test, error) {
 	return out, nil
 }
 
-func loadNativeFile(path string) (Test, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return Test{}, err
-	}
-	return parseNativeBytes(b, path)
-}
-
 func parseNativeBytes(b []byte, source string) (Test, error) {
 	var t Test
 	if err := yaml.Unmarshal(b, &t); err != nil {
