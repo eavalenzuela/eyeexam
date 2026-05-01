@@ -24,11 +24,12 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           # .golangci.yml uses v2 schema (`version: "2"`, `linters.default`),
-          # so pin a v2 release. Note: Makefile currently pins v1.62.2 in
-          # `make tools` — that's a separate drift to fix.
+          # so pin a v2 release. action@v7 is required for v2 binaries.
+          # Note: Makefile currently pins v1.62.2 in `make tools` — that's
+          # a separate drift to fix.
           version: v2.1.6
           args: --timeout=5m
 
