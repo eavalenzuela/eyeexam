@@ -8,6 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/eavalenzuela/eyeexam/internal/audit"
+	"github.com/eavalenzuela/eyeexam/internal/inventory"
+	"github.com/eavalenzuela/eyeexam/internal/runlife"
+	"github.com/eavalenzuela/eyeexam/internal/runner"
 	"github.com/eavalenzuela/eyeexam/internal/store"
 )
 
@@ -15,6 +19,119 @@ func newRunsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "runs", Short: "Inspect past runs"}
 	cmd.AddCommand(newRunsListCmd())
 	cmd.AddCommand(newRunsShowCmd())
+	cmd.AddCommand(newRunsResumeCmd())
+	return cmd
+}
+
+func newRunsResumeCmd() *cobra.Command {
+	var actorApp string
+	cmd := &cobra.Command{
+		Use:   "resume <run-id>",
+		Short: "Resume a partially complete run from its current phase",
+		Long: `Resumes a run that was interrupted (process killed, host unreachable,
+power loss). The engine inspects runs.phase and re-enters at the next
+phase; already-completed executions inside a phase are skipped via
+their idempotency keys (execution_id), so a resume never re-runs a
+test that already finished.
+
+A run in phase=reported is already terminal and resume is a no-op.
+A run in phase=failed must be inspected before resuming.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runID := args[0]
+
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			inv, err := inventory.Load(cfg.Inventory.Path)
+			if err != nil {
+				return err
+			}
+			reg, atomicSkipped, err := buildPackRegistry(cfg)
+			if err != nil {
+				return err
+			}
+			for name, skipped := range atomicSkipped {
+				for _, s := range skipped {
+					fmt.Fprintf(os.Stderr, "atomic pack %q: skipped %s — %s\n", name, s.ID, s.Reason)
+				}
+			}
+
+			st, err := store.Open(ctx(), cfg.DBPath())
+			if err != nil {
+				return err
+			}
+			defer func() { _ = st.Close() }()
+
+			r, err := st.GetRun(ctx(), runID)
+			if err != nil {
+				return err
+			}
+			if r.Phase == "reported" {
+				fmt.Printf("run %s already reported; nothing to resume\n", runID)
+				return nil
+			}
+			if r.Phase == "failed" {
+				return fmt.Errorf("run %s is in phase=failed; inspect before resuming", runID)
+			}
+
+			priv, err := loadAuditKey(cfg.Audit.KeyPath)
+			if err != nil {
+				return fmt.Errorf("load audit key: %w", err)
+			}
+			al, err := audit.Open(cfg.Audit.LogPath, priv)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = al.Close() }()
+
+			actor, err := audit.ActorFromOS(ctx())
+			if err != nil {
+				return err
+			}
+			if actorApp != "" {
+				if err := audit.ValidateAppUser(actorApp); err != nil {
+					return err
+				}
+				v := actorApp
+				actor.AppUser = &v
+			}
+
+			runners := map[string]runner.Runner{"local": runner.NewLocal()}
+			if hostsUseTransport(inv, "ssh") {
+				sshR, err := buildSSHRunner(cfg)
+				if err != nil {
+					return fmt.Errorf("ssh runner: %w", err)
+				}
+				runners["ssh"] = sshR
+				defer func() { _ = sshR.Close() }()
+			}
+
+			dreg, err := buildDetectorRegistry(cfg)
+			if err != nil {
+				return fmt.Errorf("detector registry: %w", err)
+			}
+
+			eng, err := runlife.New(runlife.Options{
+				Store: st, Audit: al, Registry: reg, Inventory: inv,
+				Runners: runners, Detectors: dreg,
+				GlobalRateTPS: cfg.Limits.GlobalTestsPerSecond,
+				PerHostConcur: cfg.Limits.PerHostConcurrency,
+			})
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("resuming run %s from phase=%s\n", runID, r.Phase)
+			if err := eng.Resume(ctx(), runID, actor); err != nil {
+				return fmt.Errorf("resume %s: %w", runID, err)
+			}
+			fmt.Printf("run %s completed — see 'eyeexam runs show %s'\n", runID, runID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&actorApp, "actor-app", "", "human identity to record on the resume actor")
 	return cmd
 }
 
