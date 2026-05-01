@@ -76,7 +76,8 @@ already-defined interfaces, so the skeleton is not re-done.
 - Companion repo for native attack scripts (decided this session, replacing
   PLAN.md's "vendor Atomic Red Team into packs/atomic"):
   `github.com/eavalenzuela/eyeexam-attackpacks`. eyeexam ships with a
-  `packs/builtin/` directory of small smoke tests; the attackpacks repo is
+  `internal/pack/embedded/builtin/` directory of small smoke tests
+  (compiled into the binary via `//go:embed`); the attackpacks repo is
   the curated catalog and is loaded via `eyeexam pack add <git-url>` rather
   than vendored into eyeexam's tree. Atomic Red Team support is retained
   (M4) — its loader points at an external clone the operator manages.
@@ -747,10 +748,9 @@ detectors:
 inventory:
   path: ./inventory.yaml                 # may also be inlined here
 
+# The embedded "builtin" pack is always available — do not list it
+# here. Additional packs:
 packs:
-  - name: builtin
-    path: ./packs/builtin                # ships with eyeexam
-    source: native
   - name: eyeexam-attackpacks
     path: ~/.local/share/eyeexam/packs/eyeexam-attackpacks
     source: native
@@ -855,10 +855,11 @@ definition of done, smoke test.
   expectation list is empty, `pending` otherwise — never `caught`).
 - `internal/rate/{rate.go,host_sem.go}`.
 - `internal/version/version.go`.
-- `packs/builtin/eye-001-tmp-touch.yaml`,
-  `packs/builtin/eye-002-bash-history-clear.yaml`,
-  `packs/builtin/eye-003-fake-curl-attacker.yaml` (all destructiveness:
-  low, /tmp-only, idempotent cleanup).
+- `internal/pack/embedded/builtin/eye-001-tmp-touch.yaml`,
+  `internal/pack/embedded/builtin/eye-002-bash-history-clear.yaml`,
+  `internal/pack/embedded/builtin/eye-003-fake-curl-attacker.yaml`
+  (all destructiveness: low, /tmp-only, idempotent cleanup; embedded
+  via `//go:embed` — see post-M9 embed milestone).
 - `tests/fixtures/...`.
 - `tests/e2e/local_smoke_test.go`.
 - `Makefile` targets: `tools`, `lint`, `test`, `build`, `dist`.

@@ -17,8 +17,7 @@ an ATT&CK coverage heatmap.
 ```bash
 make build
 
-./bin/eyeexam init --engagement HOMELAB-2026 \
-    --builtin-packs "$PWD/packs/builtin"
+./bin/eyeexam init --engagement HOMELAB-2026
 
 ./bin/eyeexam pack list
 ./bin/eyeexam inventory list
@@ -33,8 +32,10 @@ make build
 ./bin/eyeexam audit verify
 ```
 
-The bundled `packs/builtin/` smoke tests touch only `/tmp` and
-verify_cleanup is enforced.
+The bundled `builtin` pack — three smoke tests, low destructiveness,
+`/tmp`-only, verify_cleanup enforced — is **embedded into the binary**.
+No separate clone needed; `eyeexam run --pack builtin` works against a
+fresh install. Source lives under `internal/pack/embedded/builtin/`.
 
 ## What it does
 
@@ -68,7 +69,7 @@ returned ambiguous results — it is **never** silently collapsed into
 
 ```
 eyeexam version
-eyeexam init [--engagement <id>] [--builtin-packs <dir>]
+eyeexam init [--engagement <id>]
 eyeexam pack list | add <name> <path> --source native|atomic | remove <name>
 eyeexam inventory list | check
 eyeexam plan --pack <name> [--tag <t>] [--hosts ...] [--tests ...]
@@ -107,6 +108,7 @@ internal/
   inventory/         hosts + selectors
   matrix/            ATT&CK heatmap builder + HTML/JSON renderers
   pack/              native + atomic loaders + refuse list
+    embedded/        binary-embedded builtin pack (//go:embed)
   rate/              per-host semaphore + global rate limiter
   runner/            Runner iface + local/ssh
   runlife/           plan → execute → wait → query → score → cleanup → report
@@ -115,7 +117,6 @@ internal/
   store/             SQLite + embedded migrations
   version/
 ui/                  read-only HTTP viewer (html/template)
-packs/builtin/       3 bundled smoke tests
 tests/
   e2e/               integration tests (local, ssh, full pipeline, scheduler drift)
   fixtures/          atomic + native test fixtures

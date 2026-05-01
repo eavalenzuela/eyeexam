@@ -15,8 +15,15 @@ import (
 // LoadNativeDir walks dir for *.yaml files, parses each as a native Test,
 // and returns the list. Validation errors are reported with the file path.
 func LoadNativeDir(dir string) ([]Test, error) {
+	return LoadNativeFS(os.DirFS(dir))
+}
+
+// LoadNativeFS is the fs.FS-backed variant of LoadNativeDir, used for
+// the embedded builtin pack. The walk semantics are identical: *.yaml
+// files at any depth except under expectations/.
+func LoadNativeFS(fsys fs.FS) ([]Test, error) {
 	var out []Test
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -27,13 +34,14 @@ func LoadNativeDir(dir string) ([]Test, error) {
 		if ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
-		// Skip expectation sidecars; those live under packs/<x>/expectations/
-		rel, _ := filepath.Rel(dir, path)
-		if strings.HasPrefix(rel, "expectations"+string(filepath.Separator)) ||
-			strings.HasPrefix(rel, "expectations/") {
+		if strings.HasPrefix(path, "expectations/") {
 			return nil
 		}
-		t, err := loadNativeFile(path)
+		b, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return fmt.Errorf("pack: read %s: %w", path, err)
+		}
+		t, err := parseNativeBytes(b, path)
 		if err != nil {
 			return fmt.Errorf("pack: load %s: %w", path, err)
 		}
@@ -51,9 +59,13 @@ func loadNativeFile(path string) (Test, error) {
 	if err != nil {
 		return Test{}, err
 	}
+	return parseNativeBytes(b, path)
+}
+
+func parseNativeBytes(b []byte, source string) (Test, error) {
 	var t Test
 	if err := yaml.Unmarshal(b, &t); err != nil {
-		return Test{}, fmt.Errorf("yaml parse: %w", err)
+		return Test{}, fmt.Errorf("yaml parse %s: %w", source, err)
 	}
 	t.Source = SourceNative
 	sum := sha256.Sum256(b)

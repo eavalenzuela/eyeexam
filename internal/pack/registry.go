@@ -2,6 +2,7 @@ package pack
 
 import (
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"sort"
 )
@@ -32,6 +33,18 @@ func (r *Registry) AddNative(name, root string) error {
 		return err
 	}
 	return r.add(Pack{Name: name, Path: abs, Source: SourceNative, Tests: tests})
+}
+
+// AddEmbedded registers a native pack whose YAML files live in fsys
+// (typically an embed.FS). Used for the binary-bundled builtin pack.
+// Pack signing (when introduced) does not apply: the binary itself is
+// the trust boundary for embedded content.
+func (r *Registry) AddEmbedded(name string, fsys fs.FS) error {
+	tests, err := LoadNativeFS(fsys)
+	if err != nil {
+		return err
+	}
+	return r.add(Pack{Name: name, Path: "<embedded>", Source: SourceNative, Tests: tests})
 }
 
 // AddAtomic loads an Atomic Red Team-format pack and registers it. The

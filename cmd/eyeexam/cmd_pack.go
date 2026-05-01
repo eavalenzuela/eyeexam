@@ -11,6 +11,7 @@ import (
 
 	"github.com/eavalenzuela/eyeexam/internal/config"
 	"github.com/eavalenzuela/eyeexam/internal/pack"
+	"github.com/eavalenzuela/eyeexam/internal/pack/embedded"
 )
 
 func newPackCmd() *cobra.Command {
@@ -168,11 +169,22 @@ func writeConfigYAML(path string, cfg config.Config) error {
 }
 
 // buildPackRegistry constructs a registry from cfg.Packs, supporting both
-// native and atomic sources. Skipped atomic tests (per-pack) are returned.
+// native and atomic sources. The binary-embedded "builtin" pack is always
+// added first; operators don't list it in config. Skipped atomic tests
+// (per-pack) are returned.
 func buildPackRegistry(cfg config.Config) (*pack.Registry, map[string][]pack.SkippedTest, error) {
 	reg := pack.NewRegistry(nil)
+	if err := reg.AddEmbedded("builtin", embedded.BuiltinFS()); err != nil {
+		return nil, nil, fmt.Errorf("builtin pack: %w", err)
+	}
 	skipped := map[string][]pack.SkippedTest{}
 	for _, p := range cfg.Packs {
+		// Refuse a config "builtin" entry with a path — the embedded
+		// pack is the only "builtin" eyeexam knows about, and silently
+		// honoring a disk path would weaken pack-signing's trust model.
+		if p.Name == "builtin" {
+			return nil, nil, fmt.Errorf("pack %q: name reserved for the embedded builtin pack — remove from config", p.Name)
+		}
 		switch p.Source {
 		case "native", "":
 			if err := reg.AddNative(p.Name, p.Path); err != nil {

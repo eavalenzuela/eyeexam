@@ -10,6 +10,7 @@ import (
 	"github.com/eavalenzuela/eyeexam/internal/audit"
 	"github.com/eavalenzuela/eyeexam/internal/inventory"
 	"github.com/eavalenzuela/eyeexam/internal/pack"
+	"github.com/eavalenzuela/eyeexam/internal/pack/embedded"
 	"github.com/eavalenzuela/eyeexam/internal/runlife"
 	"github.com/eavalenzuela/eyeexam/internal/runner"
 	"github.com/eavalenzuela/eyeexam/internal/store"
@@ -26,12 +27,6 @@ func TestRunsResumeAfterInterrupt(t *testing.T) {
 	}
 	ctx := context.Background()
 	tmp := t.TempDir()
-
-	root, err := repoRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	builtin := filepath.Join(root, "packs", "builtin")
 
 	st, err := store.Open(ctx, filepath.Join(tmp, "eye.db"))
 	if err != nil {
@@ -50,7 +45,7 @@ func TestRunsResumeAfterInterrupt(t *testing.T) {
 	defer al.Close()
 
 	reg := pack.NewRegistry(nil)
-	if err := reg.AddNative("builtin", builtin); err != nil {
+	if err := reg.AddEmbedded("builtin", embedded.BuiltinFS()); err != nil {
 		t.Fatal(err)
 	}
 
