@@ -26,13 +26,10 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          # .golangci.yml uses v2 schema (`version: "2"`, `linters.default`),
-          # so v2 + action@v7. Use `latest` because go.mod targets Go
-          # 1.25.7 and older v2 binaries (e.g. v2.1.6) refuse to lint
-          # projects newer than the Go they were built against. Pin once
-          # CI is stable. Note: Makefile pins v1.62.2 in `make tools` —
-          # separate drift.
-          version: latest
+          # .golangci.yml uses v2 schema (`version: "2"`,
+          # `linters.default`), so v2 + action@v7. Pinned to match the
+          # version `make tools` installs locally so dev + CI agree.
+          version: v2.12.0
           args: --timeout=5m
 
       - name: go test -race

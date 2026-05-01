@@ -17,7 +17,12 @@ all: build
 
 .PHONY: tools
 tools:
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.2
+	# golangci-lint v2 — .golangci.yml uses v2 schema (`version: "2"`,
+	# `linters.default`); v1 binaries reject the config. v2.1.6 (the
+	# first v2 release) was built with Go 1.24 and refuses to lint
+	# this repo (go.mod targets 1.25). v2.12.0 is what CI picks via
+	# `latest`; pin here for matching local installs.
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.0
 	$(GO) install mvdan.cc/gofumpt@latest
 	$(GO) install gotest.tools/gotestsum@latest
 
