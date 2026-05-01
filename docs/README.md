@@ -11,6 +11,7 @@ this directory holds the deeper material.
 | Configuring SIEM/EDR detectors     | [`detectors.md`](./detectors.md)          |
 | Scheduling runs + drift alerts     | [`scheduler.md`](./scheduler.md)          |
 | Slither integration (read-only detector) | [`slither-detector.md`](./slither-detector.md) |
+| Slither API requirements (for slither maintainers) | [`slither-api-requirements.md`](./slither-api-requirements.md) |
 | Actor identity (`--actor-app`)     | [`actor-app.md`](./actor-app.md)          |
 
 Two cross-cutting reads worth the time:

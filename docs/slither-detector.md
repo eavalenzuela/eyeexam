@@ -1,10 +1,16 @@
-# Slither detector — read-API contract (M3 stub)
+# Slither detector — current shim contract (M3 stub)
 
-eyeexam's M3 slither detector targets a small JSON-over-HTTP shim. This is
-intentional: as of this writing the slither project (`../slither`) is
-pre-implementation and has no stable read API. When slither lands a real
-read endpoint, this contract is the swap target — keep the same interface,
-change the wire format.
+eyeexam's M3 slither detector currently targets a small JSON-over-HTTP
+shim. The shim is fictional: as of 2026-05 slither's only read surface
+is its HTML/HTMX console at `/events`, which eyeexam cannot consume
+programmatically. The slither detector therefore does not run against
+any real slither deployment today.
+
+> **Looking to ship the real API on the slither side?** See
+> [`slither-api-requirements.md`](./slither-api-requirements.md) — that
+> is the authoritative contract proposal for slither maintainers.
+> This file documents only what eyeexam *currently sends* (the stub
+> wire format); the requirements doc describes what eyeexam *needs*.
 
 ## Endpoints
 

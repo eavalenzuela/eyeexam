@@ -1091,13 +1091,18 @@ on its roadmap).
 ## 8. Open questions / deferred decisions
 
 1. **slither read API shape.** PLAN.md says the slither detector queries
-   "ClickHouse via the slither server's read API". slither's `../slither/PROJECT.md`
-   does not yet specify a stable query API. **Plan:** in M3 the slither
-   detector targets a small JSON-over-HTTP shim (`POST /query` with
-   `{lucene-ish-query, time_window}` → `{hits[]}`); when slither's real
-   read API lands, swap the client. The shim contract is documented in
-   `docs/slither-detector.md`. (This is the *read* direction only — see
-   §7 M7 for why the *write* direction was retracted.)
+   "ClickHouse via the slither server's read API". As of 2026-05
+   slither's only read surface is its HTML/HTMX console at `/events`,
+   which eyeexam cannot consume programmatically (no JSON variant, no
+   bearer-token auth, no Sigma-rule-id filter). The slither detector
+   therefore does not run against a real slither today. The detector
+   stub stays in tree as a placeholder; the authoritative
+   contract-proposal-for-slither lives at
+   `docs/slither-api-requirements.md` — that is what we hand to
+   slither maintainers when they're ready to build the read API.
+   `docs/slither-detector.md` documents only the current stub wire
+   format. (This is the *read* direction only — see §7 M7 for why the
+   *write* direction was retracted.)
 2. **PowerShell on Linux.** Initial release skips PS-only Atomic tests
    with a clear marker (PLAN.md "Still open"). Implementation: in M4,
    `loader_atomic.go` tags PS-only tests with `Skipped: "powershell-not-available"`,
