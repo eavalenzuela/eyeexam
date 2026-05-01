@@ -12,6 +12,7 @@ this directory holds the deeper material.
 | Scheduling runs + drift alerts     | [`scheduler.md`](./scheduler.md)          |
 | Slither integration (detector)     | [`slither-detector.md`](./slither-detector.md) |
 | Slither integration (runner)       | [`slither-runner.md`](./slither-runner.md) |
+| Actor identity (`--actor-app`)     | [`actor-app.md`](./actor-app.md)          |
 
 Two cross-cutting reads worth the time:
 
