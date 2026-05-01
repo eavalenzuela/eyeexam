@@ -13,6 +13,7 @@ this directory holds the deeper material.
 | Slither integration (read-only detector) | [`slither-detector.md`](./slither-detector.md) |
 | Slither API requirements (for slither maintainers) | [`slither-api-requirements.md`](./slither-api-requirements.md) |
 | Actor identity (`--actor-app`)     | [`actor-app.md`](./actor-app.md)          |
+| Audit log (model + verify + why no pruning) | [`audit-log.md`](./audit-log.md)    |
 
 Two cross-cutting reads worth the time:
 
