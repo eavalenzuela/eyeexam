@@ -60,6 +60,66 @@ func TestRunInsertAndPhaseUpdate(t *testing.T) {
 	}
 }
 
+func TestListAuditFilters(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Insert a few canned rows directly. The audit package owns the real
+	// write path; here we just need data to exercise the filter SQL.
+	insert := func(seq int, ts, event, runID, actor string) {
+		t.Helper()
+		_, err := s.DB.Exec(`INSERT INTO audit_log
+			(seq, ts, actor_json, engagement_id, run_id, event, payload_json, prev_hash, hash, signature)
+			VALUES (?, ?, ?, ?, ?, ?, 'null', '', '', '')`,
+			seq, ts, actor, "ENG-1", runID, event)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(1, "2026-04-01T00:00:00Z", "run_planned", "r-1", `{"os_user":"alice","os_uid":1000}`)
+	insert(2, "2026-04-01T00:00:01Z", "test_executed", "r-1", `{"os_user":"alice","os_uid":1000}`)
+	insert(3, "2026-04-02T00:00:00Z", "run_planned", "r-2", `{"os_user":"bob","os_uid":1001,"app_user":"bob@example.com"}`)
+	insert(4, "2026-04-03T00:00:00Z", "destructive_run_authorized", "r-2", `{"os_user":"bob","os_uid":1001,"app_user":"bob@example.com"}`)
+
+	// run filter
+	rows, err := s.ListAudit(ctx, AuditFilter{RunID: "r-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("run=r-1: got %d rows, want 2", len(rows))
+	}
+
+	// event filter
+	rows, _ = s.ListAudit(ctx, AuditFilter{Event: "run_planned"})
+	if len(rows) != 2 {
+		t.Errorf("event=run_planned: got %d, want 2", len(rows))
+	}
+
+	// actor substring
+	rows, _ = s.ListAudit(ctx, AuditFilter{Actor: "bob@example.com"})
+	if len(rows) != 2 {
+		t.Errorf("actor=bob@example.com: got %d, want 2", len(rows))
+	}
+
+	// since filter
+	rows, _ = s.ListAudit(ctx, AuditFilter{SinceTS: "2026-04-02T00:00:00Z"})
+	if len(rows) != 2 {
+		t.Errorf("since=Apr2: got %d, want 2", len(rows))
+	}
+
+	// combined
+	rows, _ = s.ListAudit(ctx, AuditFilter{RunID: "r-2", Event: "destructive_run_authorized"})
+	if len(rows) != 1 {
+		t.Errorf("combined filters: got %d, want 1", len(rows))
+	}
+}
+
 func TestScheduleAppUserRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

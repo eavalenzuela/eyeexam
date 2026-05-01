@@ -43,6 +43,25 @@
   </tbody>
 </table>
 {{end}}
+
+{{if .AuditEvents}}
+<h2>Audit events</h2>
+<p class="muted">Records from the signed audit log (run a `eyeexam audit verify` to confirm chain integrity).</p>
+<table class="audit">
+  <thead><tr><th>seq</th><th>ts</th><th>event</th><th>actor</th><th>payload</th></tr></thead>
+  <tbody>
+    {{range .AuditEvents}}
+      <tr>
+        <td>{{.Seq}}</td>
+        <td>{{.TS}}</td>
+        <td>{{.Event}}</td>
+        <td>{{.Actor}}</td>
+        <td><code>{{.Payload}}</code></td>
+      </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
 {{end}}
 
 {{template "base" .}}

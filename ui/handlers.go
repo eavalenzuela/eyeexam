@@ -2,6 +2,7 @@ package ui
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -140,13 +141,54 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 			expectations = append(expectations, expectationRow{ExecutionID: ex.ID, ExpectedDetection: ed})
 		}
 	}
+	auditRows, err := s.opts.Store.ListAudit(ctx, store.AuditFilter{RunID: id, Limit: 500})
+	if err != nil {
+		writeServerError(w, err)
+		return
+	}
+	type auditRowView struct {
+		Seq     int64
+		TS      string
+		Event   string
+		Actor   string
+		Payload string
+	}
+	auditView := make([]auditRowView, 0, len(auditRows))
+	for _, r := range auditRows {
+		auditView = append(auditView, auditRowView{
+			Seq:     r.Seq,
+			TS:      r.TS,
+			Event:   r.Event,
+			Actor:   summarizeActorJSON(r.ActorJSON),
+			Payload: r.PayloadJSON,
+		})
+	}
 	render(w, "run_detail.html", map[string]any{
 		"Meta":         pageMeta{Title: id + " · eyeexam", Active: "runs", Generated: time.Now().UTC()},
 		"Run":          run,
 		"Executions":   execs,
 		"HostNames":    hostNames,
 		"Expectations": expectations,
+		"AuditEvents":  auditView,
 	})
+}
+
+// summarizeActorJSON produces a one-line label from a JSON-encoded
+// audit.Actor. Mirrors the Actor.String() format without importing the
+// audit package (avoids a UI→audit dependency).
+func summarizeActorJSON(actorJSON string) string {
+	var a struct {
+		OSUser  string  `json:"os_user"`
+		OSUID   int     `json:"os_uid"`
+		AppUser *string `json:"app_user,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(actorJSON), &a); err != nil {
+		return actorJSON
+	}
+	if a.AppUser != nil {
+		return fmt.Sprintf("%s/%s(uid=%d)", *a.AppUser, a.OSUser, a.OSUID)
+	}
+	return fmt.Sprintf("%s(uid=%d)", a.OSUser, a.OSUID)
 }
 
 func (s *Server) handleMatrix(w http.ResponseWriter, r *http.Request) {

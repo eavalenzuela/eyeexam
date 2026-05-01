@@ -63,6 +63,58 @@ func TestServerEndpoints(t *testing.T) {
 	}
 }
 
+func TestRunDetailAuditPanel(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "ui.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.UpsertEngagement(ctx, store.Engagement{
+		ID: "ENG-1", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := store.Run{
+		ID: "r-ui-1", EngagementID: "ENG-1", Seed: 1, MaxDest: "low",
+		SelectorJSON: "{}", PlanJSON: "{}", Phase: "reported",
+		AuthorizedBy: "alice(uid=1000)",
+	}
+	if err := st.InsertRun(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB.Exec(`INSERT INTO audit_log
+		(seq, ts, actor_json, engagement_id, run_id, event, payload_json, prev_hash, hash, signature)
+		VALUES (1, '2026-04-01T00:00:00Z', '{"os_user":"alice","os_uid":1000}',
+		        'ENG-1', 'r-ui-1', 'run_planned', 'null', '', '', '')`); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(Options{
+		Listen: "127.0.0.1:0", Store: st, Bundle: attack.EmbeddedFallback(),
+		MatrixWindow: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	s.routes(mux)
+
+	req, _ := http.NewRequest(http.MethodGet, "/runs/r-ui-1", nil)
+	rec := newRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.code, rec.body.String())
+	}
+	body := rec.body.String()
+	for _, want := range []string{"Audit events", "run_planned", "alice(uid=1000)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q\n--- body ---\n%s", want, body)
+		}
+	}
+}
+
 // minimal http.ResponseWriter implementation
 type recorder struct {
 	code int
