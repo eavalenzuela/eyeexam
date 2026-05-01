@@ -11,23 +11,31 @@ inconsistencies are listed in §2.7).
 
 ---
 
-## Status (M1–M8 shipped)
+## Status (M1–M8 shipped; M7 retracted)
 
-| ms | scope                                              | status   | notable plan deviations                              |
-|----|----------------------------------------------------|----------|------------------------------------------------------|
-| M1 | local runner, native pack, store, audit, CLI       | shipped  | none                                                 |
-| M2 | SSH runner, inventory check, audit richness        | shipped  | docker-compose sshd → in-process `tests/sshfx` (§7 M2 notes) |
-| M3 | detector iface, loki + slither stub, scoring       | shipped  | slither read API is a JSON-over-HTTP shim (§8.1 + `docs/slither-detector.md`) |
-| M4 | Atomic Red Team support, sidecar expectations      | shipped  | eyeexam never clones; operators manage the clone (`docs/atomic-redteam.md`) |
-| M5 | ATT&CK matrix + read-only UI                       | shipped  | `templ` + htmx → stdlib `html/template` (§2.3.1)      |
-| M6 | Wazuh + Elastic + Splunk detectors                 | shipped  | docker-compose harness → `httptest`-based parity test |
-| M7 | slither runner via signed control plane            | shipped  | gRPC RPC → JSON-over-HTTP shim until slither defines proto (`docs/slither-runner.md`) |
-| M8 | schedule + drift alerts                            | shipped  | none                                                 |
+| ms | scope                                              | status     | notable plan deviations                              |
+|----|----------------------------------------------------|------------|------------------------------------------------------|
+| M1 | local runner, native pack, store, audit, CLI       | shipped    | none                                                 |
+| M2 | SSH runner, inventory check, audit richness        | shipped    | docker-compose sshd → in-process `tests/sshfx` (§7 M2 notes) |
+| M3 | detector iface, loki + slither stub, scoring       | shipped    | slither read API is a JSON-over-HTTP shim (§8.1 + `docs/slither-detector.md`) |
+| M4 | Atomic Red Team support, sidecar expectations      | shipped    | eyeexam never clones; operators manage the clone (`docs/atomic-redteam.md`) |
+| M5 | ATT&CK matrix + read-only UI                       | shipped    | `templ` + htmx → stdlib `html/template` (§2.3.1)      |
+| M6 | Wazuh + Elastic + Splunk detectors                 | shipped    | docker-compose harness → `httptest`-based parity test |
+| M7 | ~~slither runner via signed control plane~~        | retracted  | scope withdrawn — slither stays defensive-only (§7 M7) |
+| M8 | schedule + drift alerts                            | shipped    | none                                                 |
+| M9-A | `--actor-app` flag, schedules.app_user column    | shipped    | none                                                 |
 
 The deviations listed are intentional substitutions documented in this file
 or in `docs/`. Each one preserves the original interface contract; swapping
 back to the planned dependency (templ, gRPC, etc.) is mechanical and does
 not change runlife / score / audit.
+
+**M7 was retracted in 2026-05.** The slither runner shipped as a JSON-over-HTTP
+shim and was then removed entirely: turning slither's defensive control plane
+into a BAS execution channel conflicts with slither's defensive scope and
+roadmap. The slither *detector* (read-only event consumption, M3) remains
+supported. See §7 M7 for the retraction notes; the offensive direction is
+not on the roadmap.
 
 The per-milestone scopes in §7 below remain accurate as the build records.
 Operator-facing documentation lives under `docs/`:
@@ -36,8 +44,9 @@ Operator-facing documentation lives under `docs/`:
 - `docs/atomic-redteam.md` — operator clone workflow, sidecar layout.
 - `docs/detectors.md` — per-backend config reference.
 - `docs/scheduler.md` — schedule authoring + drift alerts.
-- `docs/slither-detector.md`, `docs/slither-runner.md` — shim contracts +
-  gRPC swap targets for when slither's BAS surface ships.
+- `docs/slither-detector.md` — shim contract + swap target for when
+  slither's read API stabilizes.
+- `docs/actor-app.md` — `--actor-app` operator guide.
 
 ---
 
@@ -151,7 +160,6 @@ eyeexam/
       runner.go             # interface + Result type
       local.go              # localhost executor (M1)
       ssh.go                # SSH executor (M2)
-      slither.go            # slither-agent dispatch (M7, stubbed earlier)
     detector/
       detector.go           # interface + ExpectationQuery / Hit types
       fake.go               # in-process fake (test fixture)
@@ -309,7 +317,7 @@ CREATE TABLE executions (
   attack_technique TEXT,                -- e.g. "T1070.003"
   attack_tactic   TEXT,                 -- e.g. "TA0005"
   destructiveness TEXT NOT NULL CHECK (destructiveness IN ('low','medium','high')),
-  runner          TEXT NOT NULL,        -- 'local' | 'ssh' | 'slither'
+  runner          TEXT NOT NULL,        -- 'local' | 'ssh' (legacy rows may carry 'slither' before M7 retraction)
   started_at      TEXT NOT NULL,
   finished_at     TEXT,
   exit_code       INTEGER,
@@ -458,10 +466,9 @@ expectations inline.
 type Host struct {
     Name      string
     Address   string
-    Transport string                       // "ssh"|"slither"|"local"
+    Transport string                       // "ssh"|"local"
     User      string
     KeyPath   string
-    AgentID   string                       // slither only
     Tags      []string
     MaxDest   Dest                         // optional per-host cap
 }
@@ -506,7 +513,7 @@ type Result struct {
 }
 
 type Runner interface {
-    Name() string                          // "local"|"ssh"|"slither"
+    Name() string                          // "local"|"ssh"
     Capabilities() []string                // shells available
     Execute(ctx context.Context, host inventory.Host, step ExecuteStep) (Result, error)
     Close() error
@@ -698,9 +705,6 @@ runner:
     default_key: ~/.ssh/eyeexam_ed25519
     connect_timeout: 10s
     command_timeout: 5m
-  slither:
-    server: grpc.slither.lab:7443        # not used until M7
-    ca: /etc/slither/ca.pem
   local:
     enabled: true                        # explicit opt-in for safety
     # localhost is fully capable of destructive runs; gated by --max-dest +
@@ -1026,51 +1030,38 @@ problematic Atomic tests called out in PLAN.md §"Safety rails".
 - HealthCheck reports auth/connectivity issues clearly at startup, not
   silently at query time.
 
-### M7 — slither runner
+### M7 — slither runner *(retracted 2026-05)*
 
-**Scope.** Dispatch test commands via the slither agent's signed control
-plane. Requires a proto extension in slither.
+**Original scope.** Dispatch test commands via the slither agent's signed
+control plane, with a `BasExecuteRequest`/`BasExecuteResponse` proto
+extension on slither's side.
 
-**Pre-work in slither (separate PR, not in eyeexam repo):**
+**Retracted.** eyeexam will not use slither agents to run code on hosts.
+Turning slither's defensive control plane into a BAS execution channel
+conflicts with slither's own scope (its roadmap is detection rules + canned
+response actions, not arbitrary command execution). Operators wire eyeexam
+through the local or SSH runners; sites that already run slither agents do
+not get a dual-purpose convenience.
 
-Add to `slither/proto/slither/v1/control.proto`:
+**What was removed.**
 
-```protobuf
-message BasExecuteRequest {
-  string control_id = 1;
-  string operator_id = 2;
-  string engagement_id = 3;
-  string shell = 4;                    // "bash"|"powershell"
-  string command = 5;
-  uint32 timeout_seconds = 6;
-}
+- `internal/runner/slither.go` and its test, `tests/e2e/slither_smoke_test.go`.
+- `runner.slither` config block, `inventory.Host.AgentID`, the
+  `transport: "slither"` validator branch.
+- `docs/slither-runner.md`.
+- The proto-extension proposal above; eyeexam is not asking slither to add
+  a BAS execute surface.
 
-message BasExecuteResponse {
-  string control_id = 1;
-  int32 exit_code = 2;
-  bytes stdout = 3;
-  bytes stderr = 4;
-  string error = 5;
-}
-```
+**What remains supported.**
 
-Server gates these behind operator auth + engagement-id allowlist; agent
-gates behind a config-flag (`accept_bas_execute: true`) that defaults off.
+- The slither *detector* (M3, `internal/detector/slither.go`,
+  `docs/slither-detector.md`) is read-only event consumption and stays.
+  It's no different in posture from Loki/Elastic/Splunk/Wazuh.
 
-**Files added in eyeexam.**
-
-- `internal/runner/slither.go` — gRPC client to slither server's BAS
-  endpoint, presents the same `Runner` interface.
-- `cmd/eyeexam/cmd_inventory.go` — `inventory check` learns to ping
-  slither agents.
-
-**Definition of done.**
-
-- Against a slither dev cluster (per `../slither/deploy/`), eyeexam runs a
-  test against an agent host, output and exit code returned, slither's
-  audit log records the dispatch.
-- Same audit record exists in eyeexam's audit log, cross-referencing the
-  slither `control_id`.
+**If this is ever revisited:** the local + SSH runners cover every host
+eyeexam should be reaching. A "slither runner" would only re-enter scope
+if slither itself adopts a first-class BAS execute surface (which is not
+on its roadmap).
 
 ### M8 — Schedule + drift alerts
 
@@ -1101,11 +1092,12 @@ gates behind a config-flag (`accept_bas_execute: true`) that defaults off.
 
 1. **slither read API shape.** PLAN.md says the slither detector queries
    "ClickHouse via the slither server's read API". slither's `../slither/PROJECT.md`
-   does not yet specify a stable query API. **Plan:** in M3 build the
-   slither detector against a small JSON-over-HTTP shim (`POST /query`
-   with `{lucene-ish-query, time_window}` → `{hits[]}`); when slither's
-   real read API lands, swap the client. Document the shim contract in
-   `docs/slither-detector.md` so it's reviewable when slither catches up.
+   does not yet specify a stable query API. **Plan:** in M3 the slither
+   detector targets a small JSON-over-HTTP shim (`POST /query` with
+   `{lucene-ish-query, time_window}` → `{hits[]}`); when slither's real
+   read API lands, swap the client. The shim contract is documented in
+   `docs/slither-detector.md`. (This is the *read* direction only — see
+   §7 M7 for why the *write* direction was retracted.)
 2. **PowerShell on Linux.** Initial release skips PS-only Atomic tests
    with a clear marker (PLAN.md "Still open"). Implementation: in M4,
    `loader_atomic.go` tags PS-only tests with `Skipped: "powershell-not-available"`,

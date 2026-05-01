@@ -40,9 +40,8 @@ type AuditConfig struct {
 }
 
 type RunnerConfig struct {
-	SSH     SSHConfig     `yaml:"ssh"`
-	Slither SlitherConfig `yaml:"slither"`
-	Local   LocalConfig   `yaml:"local"`
+	SSH   SSHConfig   `yaml:"ssh"`
+	Local LocalConfig `yaml:"local"`
 }
 
 type SSHConfig struct {
@@ -51,11 +50,6 @@ type SSHConfig struct {
 	KnownHosts     string `yaml:"known_hosts"`
 	ConnectTimeout string `yaml:"connect_timeout"`
 	CommandTimeout string `yaml:"command_timeout"`
-}
-
-type SlitherConfig struct {
-	Server string `yaml:"server"`
-	CA     string `yaml:"ca"`
 }
 
 type LocalConfig struct {

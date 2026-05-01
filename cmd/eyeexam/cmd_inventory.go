@@ -68,20 +68,12 @@ func newInventoryCheckCmd() *cobra.Command {
 				}
 				defer func() { _ = sshR.Close() }()
 			}
-			var slR *runner.SlitherRunner
-			if hostsUseTransport(inv, "slither") {
-				slR, err = buildSlitherRunner(cfg, cfg.Engagement.ID, "inventory-check")
-				if err != nil {
-					return fmt.Errorf("slither runner: %w", err)
-				}
-				defer func() { _ = slR.Close() }()
-			}
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "HOST\tTRANSPORT\tSTATUS\tDETAIL")
 			anyFailure := false
 			for _, h := range inv.Hosts {
-				status, detail := checkHost(cmd.Context(), h, sshR, slR, dialTimeout)
+				status, detail := checkHost(cmd.Context(), h, sshR, dialTimeout)
 				if status != "ok" {
 					anyFailure = true
 				}
@@ -101,7 +93,7 @@ func newInventoryCheckCmd() *cobra.Command {
 	return cmd
 }
 
-func checkHost(parent context.Context, h inventory.Host, sshR *runner.SSH, slR *runner.SlitherRunner, timeout time.Duration) (status, detail string) {
+func checkHost(parent context.Context, h inventory.Host, sshR *runner.SSH, timeout time.Duration) (status, detail string) {
 	switch h.Transport {
 	case "local":
 		return "ok", "localhost"
@@ -119,20 +111,6 @@ func checkHost(parent context.Context, h inventory.Host, sshR *runner.SSH, slR *
 			return "fail", err.Error()
 		}
 		return "ok", "ssh exec true returned 0"
-	case "slither":
-		if slR == nil {
-			return "skipped", "no slither runner configured"
-		}
-		ctx := parent
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		if err := slR.HealthCheck(ctx); err != nil {
-			return "fail", err.Error()
-		}
-		return "ok", "slither BAS health 200"
 	default:
 		return "fail", "unknown transport"
 	}

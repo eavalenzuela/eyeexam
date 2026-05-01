@@ -236,15 +236,6 @@ func newSchedulerRunCmd() *cobra.Command {
 				runners["ssh"] = sshR
 				defer func() { _ = sshR.Close() }()
 			}
-			if hostsUseTransport(inv, "slither") {
-				actor, _ := audit.ActorFromOS(ctx())
-				slR, err := buildSlitherRunner(cfg, cfg.Engagement.ID, actor.String())
-				if err != nil {
-					return fmt.Errorf("slither runner: %w", err)
-				}
-				runners["slither"] = slR
-				defer func() { _ = slR.Close() }()
-			}
 
 			dreg, err := buildDetectorRegistry(cfg)
 			if err != nil {

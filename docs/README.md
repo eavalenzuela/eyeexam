@@ -10,8 +10,7 @@ this directory holds the deeper material.
 | Using Atomic Red Team tests        | [`atomic-redteam.md`](./atomic-redteam.md) |
 | Configuring SIEM/EDR detectors     | [`detectors.md`](./detectors.md)          |
 | Scheduling runs + drift alerts     | [`scheduler.md`](./scheduler.md)          |
-| Slither integration (detector)     | [`slither-detector.md`](./slither-detector.md) |
-| Slither integration (runner)       | [`slither-runner.md`](./slither-runner.md) |
+| Slither integration (read-only detector) | [`slither-detector.md`](./slither-detector.md) |
 | Actor identity (`--actor-app`)     | [`actor-app.md`](./actor-app.md)          |
 
 Two cross-cutting reads worth the time:

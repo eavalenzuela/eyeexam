@@ -17,10 +17,9 @@ import (
 type Host struct {
 	Name      string    `yaml:"name" json:"name"`
 	Address   string    `yaml:"address" json:"address"`
-	Transport string    `yaml:"transport" json:"transport"` // "ssh"|"slither"|"local"
+	Transport string    `yaml:"transport" json:"transport"` // "ssh"|"local"
 	User      string    `yaml:"user,omitempty" json:"user,omitempty"`
 	KeyPath   string    `yaml:"key,omitempty" json:"key,omitempty"`
-	AgentID   string    `yaml:"agent_id,omitempty" json:"agent_id,omitempty"`
 	Tags      []string  `yaml:"tags" json:"tags"`
 	MaxDest   pack.Dest `yaml:"max_destructiveness,omitempty" json:"max_destructiveness,omitempty"`
 }
@@ -77,7 +76,7 @@ func (i *Inventory) Validate() error {
 		}
 		seen[h.Name] = true
 		switch h.Transport {
-		case "ssh", "slither", "local":
+		case "ssh", "local":
 		case "":
 			return fmt.Errorf("inventory: host %q missing transport", h.Name)
 		default:

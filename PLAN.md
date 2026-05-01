@@ -21,8 +21,10 @@ query existing ones).
 
 ## Non-negotiables
 
-- **Single Go binary.** No agent. Remote execution via SSH or via the
-  target's existing telemetry agent (slither-agent module hook).
+- **Single Go binary.** No agent. Remote execution via SSH only —
+  eyeexam never repurposes a defensive telemetry agent (e.g. slither's)
+  as a BAS dispatch channel. See IMPLEMENTATION.md §7 M7 for the
+  retraction note.
 - **Authorized use only.** Refuses to start without `--authorized` and a
   config-declared `engagement.id` written into every record.
 - **Cleanup is verified, not assumed.** A test that doesn't cleanly revert
@@ -48,7 +50,6 @@ eyeexam/
     inventory/            # host inventory loader, tag selectors
     runner/
       ssh.go              # SSH executor (default)
-      slither.go          # optional: dispatch via slither-agent module
       local.go            # localhost executor (dev / single-box)
     detector/             # SIEM connector interface + implementations
       slither.go
@@ -137,8 +138,8 @@ hosts:
     tags: [linux, web, prod]
   - name: build-01
     address: 10.0.5.12
-    transport: slither     # dispatch via slither-agent
-    agent_id: <agent-uuid>
+    transport: ssh
+    user: eyeexam
     tags: [linux, build]
 
 tags:
@@ -164,12 +165,14 @@ type Runner interface {
 - **ssh** — opens a session per step; never reuses for unrelated tests.
   Uses an `eyeexam` user with sudo limited to the explicit set of commands
   tests need (the deployment doc walks through the sudoers stanza).
-- **slither** — only available if the host is a slither agent. Dispatches
-  the command through a signed control message over the existing gRPC
-  channel. Output and exit code returned the same way. Adds an extra
-  audit trail on the slither side.
 - **local** — `exec.Cmd` on the host eyeexam itself runs on. Intended for
   dev and single-box homelabs.
+
+eyeexam does **not** dispatch BAS commands through any defensive agent
+(slither's or otherwise). Repurposing a defensive control plane for
+attack execution conflicts with the agent's defensive scope; the
+original M7 "slither runner" milestone was retracted. See
+`IMPLEMENTATION.md` §7 M7.
 
 Every execution captures `{stdout, stderr, exit_code, duration_ms,
 started_at, host_id, runner}` into the store *before* moving to the next
@@ -346,8 +349,9 @@ eyeexam serve  [--listen :8088]              # read-only web UI for runs + matri
 5. **M5 — ATT&CK matrix + read-only UI.** HTML matrix, run viewer, drift
    view on the homepage.
 6. **M6 — additional detectors.** Wazuh, Elastic, Splunk.
-7. **M7 — slither runner.** Dispatch via slither-agent, end-to-end signed
-   control plane.
+7. **M7 — slither runner.** *Retracted.* The plan was to dispatch BAS
+   commands via slither agents; this was withdrawn (slither stays
+   defensive-only). See IMPLEMENTATION.md §7 M7.
 8. **M8 — schedule + drift alerts.** Cron-style scheduling, alert sinks
    (ntfy/Discord/webhook) when previously-caught techniques regress.
 

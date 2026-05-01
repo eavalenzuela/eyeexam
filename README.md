@@ -6,9 +6,9 @@ whether the detection actually fired. Atomic Red Team supplies the
 techniques; eyeexam runs them, asks the SIEM what it saw, and produces
 an ATT&CK coverage heatmap.
 
-> **Status: M1–M8 shipped.** Local + SSH + slither runners; loki +
-> slither + wazuh + elastic + splunk detectors; ATT&CK matrix HTML/JSON
-> viewer; cron scheduler with drift alerts. See
+> **Status: M1–M8 shipped.** Local + SSH runners; loki + slither + wazuh
+> + elastic + splunk detectors; ATT&CK matrix HTML/JSON viewer; cron
+> scheduler with drift alerts. See
 > [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) for the per-milestone build
 > log.
 
@@ -57,7 +57,7 @@ returned ambiguous results — it is **never** silently collapsed into
 
 | layer        | implementations                                         |
 |--------------|---------------------------------------------------------|
-| Runners      | `local`, `ssh`, `slither` (BAS dispatch)               |
+| Runners      | `local`, `ssh`                                         |
 | Detectors    | `loki`, `slither`, `wazuh`, `elastic`, `splunk`         |
 | Pack formats | eyeexam-native YAML, Atomic Red Team YAML (sidecar exp.) |
 | Alert sinks  | `webhook`, `ntfy`, `discord`                            |
@@ -88,7 +88,8 @@ eyeexam scheduler run [--interval 30s]
 - **Atomic Red Team support** — `docs/atomic-redteam.md`
 - **Detector backends** — `docs/detectors.md`
 - **Scheduler & drift alerts** — `docs/scheduler.md`
-- **Slither integration** — `docs/slither-detector.md`, `docs/slither-runner.md`
+- **Slither integration (read-only detector)** — `docs/slither-detector.md`
+- **Actor identity (`--actor-app`)** — `docs/actor-app.md`
 - **Project spec** — `PLAN.md`
 - **Engineering plan & milestone log** — `IMPLEMENTATION.md`
 
@@ -107,7 +108,7 @@ internal/
   matrix/            ATT&CK heatmap builder + HTML/JSON renderers
   pack/              native + atomic loaders + refuse list
   rate/              per-host semaphore + global rate limiter
-  runner/            Runner iface + local/ssh/slither
+  runner/            Runner iface + local/ssh
   runlife/           plan → execute → wait → query → score → cleanup → report
   scheduler/         cron-driven daemon
   score/             caught/missed/uncertain + drift detection
@@ -116,7 +117,7 @@ internal/
 ui/                  read-only HTTP viewer (html/template)
 packs/builtin/       3 bundled smoke tests
 tests/
-  e2e/               integration tests (local, ssh, slither, full pipeline, scheduler drift)
+  e2e/               integration tests (local, ssh, full pipeline, scheduler drift)
   fixtures/          atomic + native test fixtures
   sshfx/             in-process SSH server fixture
 docs/                operator-facing topic docs
