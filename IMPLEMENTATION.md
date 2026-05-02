@@ -19,7 +19,7 @@ inconsistencies are listed in §2.7).
 | M2 | SSH runner, inventory check, audit richness        | shipped    | docker-compose sshd → in-process `tests/sshfx` (§7 M2 notes) |
 | M3 | detector iface, loki + slither stub, scoring       | shipped    | slither read API is a JSON-over-HTTP shim (§8.1 + `docs/slither-detector.md`) |
 | M4 | Atomic Red Team support, sidecar expectations      | shipped    | eyeexam never clones; operators manage the clone (`docs/atomic-redteam.md`) |
-| M5 | ATT&CK matrix + read-only UI                       | shipped    | `templ` + htmx → stdlib `html/template` (§2.3.1)      |
+| M5 | ATT&CK matrix + read-only UI                       | UI retracted | UI shipped, then deleted post-M9 in favor of standalone HTML reports (§7 M5) |
 | M6 | Wazuh + Elastic + Splunk detectors                 | shipped    | docker-compose harness → `httptest`-based parity test |
 | M7 | ~~slither runner via signed control plane~~        | retracted  | scope withdrawn — slither stays defensive-only (§7 M7) |
 | M8 | schedule + drift alerts                            | shipped    | none                                                 |
@@ -111,26 +111,13 @@ already-defined interfaces, so the skeleton is not re-done.
 `mattn/go-sqlite3` is **not** used. (Resolves PLAN.md §"Packaging & deps"
 inconsistency.)
 
-#### 2.3.1 templ + htmx → stdlib swap (M5)
+#### 2.3.1 templ + htmx → stdlib swap (M5) — *historical*
 
-The original plan called for `templ` (codegen) + a vendored htmx.min.js. In
-M5 we landed the read-only UI on stdlib `html/template` instead, with no
-htmx dependency:
-
-- **No codegen step.** `templ generate` would have added a tool-install
-  prerequisite to `make build` and a generated-file-in-PR review burden;
-  stdlib templates ship as plain text, embedded via `//go:embed`.
-- **No htmx for v1.** The viewer is read-only — every page is a plain
-  GET. There is no live update, no partial reload. We can layer htmx in
-  later (drift cell → runs popover, etc.) without changing the routes.
-- **Per-page parsed templates.** Because every page defines a `content`
-  block, parsing them all into one `*template.Template` causes the last
-  parsed file to win. `ui/handlers.go` parses each page independently
-  (base.html + that page's file), keyed by name. This costs negligible
-  memory and avoids template-namespace collisions.
-
-The htmx vendoring task is reopened only if a future milestone needs
-interactive cells. The Detector / Score / runlife layers are unchanged.
+When M5 first shipped, the read-only UI was implemented in stdlib
+`html/template` (no `templ`, no htmx). That UI was deleted post-M9 in
+favor of standalone HTML reports — see §7 M5 for the retraction
+rationale. The stdlib-template machinery survives in `internal/report`,
+which now owns all HTML rendering.
 
 ### 2.4 Repo layout (final, supersedes PLAN.md sketch)
 
@@ -145,9 +132,8 @@ eyeexam/
     cmd_plan.go
     cmd_run.go
     cmd_runs.go             # runs list / show / resume
-    cmd_matrix.go
-    cmd_audit.go
-    cmd_serve.go
+    cmd_audit.go            # verify / show
+    cmd_report.go           # coverage / run / matrix
     cmd_version.go
   internal/
     config/                 # YAML config loader, validation, engagement metadata
@@ -171,7 +157,7 @@ eyeexam/
       splunk.go             # Splunk REST (M6)
     score/                  # caught/missed/uncertain logic, dedup, aggregation
     cleanup/                # cleanup execution + verification orchestration
-    matrix/                 # ATT&CK heatmap renderer (HTML + JSON)
+    report/                 # HTML + JSON renderers for coverage/run/matrix
     store/
       store.go              # sqlx wrapper, transactions, models
       migrations/           # goose SQL files, embed.FS
@@ -183,14 +169,6 @@ eyeexam/
     rate/                   # global rate limiter + per-host semaphore
     attack/                 # MITRE ATT&CK STIX bundle reader (technique → name/tactic)
     version/                # build-time version info
-  ui/
-    server.go               # HTTP server, routing, auth-less localhost-only
-    handlers/
-    templates/              # *.templ source
-    static/                 # htmx.min.js, css
-  packs/
-    builtin/                # smoke / sanity tests (low destructiveness, /tmp only)
-    attack/                 # vendored MITRE ATT&CK STIX bundle (read-only)
   tests/
     fixtures/
       packs/
@@ -761,9 +739,6 @@ packs:
 limits:
   global_tests_per_second: 1
   per_host_concurrency: 1
-
-ui:
-  listen: 127.0.0.1:8088                 # never bind public by default
 ```
 
 ---
@@ -789,12 +764,14 @@ eyeexam run    --pack <name> [...same...] \
 eyeexam runs   list   [--engagement <id>] [--since <dur>]
 eyeexam runs   show   <run-id> [--json]
 eyeexam runs   resume <run-id>
-eyeexam matrix [--since 30d] [--tag <t>] [--out matrix.html|matrix.json]
-eyeexam report coverage [--engagement <id>] [--since <dur>] [--format md|json] [--out <path>]
 eyeexam audit  verify [--from-seq N] [--to-seq M]
 eyeexam audit  show   [--run <id>] [--engagement <id>] [--event <name>] \
                       [--actor <substr>] [--since <dur>] [--limit N] [--json]
-eyeexam serve  [--listen :8088]                  # read-only UI
+eyeexam report coverage [--engagement <id>] [--since <dur>] [--format html|json] [--out <path>]
+eyeexam report run     <run-id>                 [--format html|json] [--out <path>]
+eyeexam report matrix  [--engagement <id>]      [--since <dur>] [--format html|json] [--out <path>]
+eyeexam schedule add | list | remove
+eyeexam scheduler run [--interval 30s] [--audit-verify-interval 1h]
 ```
 
 Global flags: `--config`, `--data-dir`, `--log-level`, `--no-color`.
@@ -1003,33 +980,46 @@ problematic Atomic tests called out in PLAN.md §"Safety rails".
   new tip would change the hash of any test that's currently in an active
   run plan.
 
-### M5 — ATT&CK matrix + read-only UI
+### M5 — ATT&CK matrix + read-only UI *(UI retracted post-M9)*
 
-**Scope.** HTML matrix, run viewer, drift homepage.
+**Original scope.** HTML matrix, run viewer, drift homepage,
+served at `eyeexam serve` (default `127.0.0.1:8088`).
 
-**Files added.**
+**What shipped.** `internal/matrix` for grid computation, `ui/` for the
+HTTP viewer (stdlib `html/template`, no htmx — see §2.3.1), four routes:
+`/`, `/runs`, `/runs/<id>`, `/matrix`. Bind safety refused non-loopback
+addresses without `--insecure-public`. Per-run audit-events panel was
+added later when the audit_log mirror landed.
 
-- `internal/attack/{stix.go,matrix.go}` — read MITRE ATT&CK STIX bundle
-  vendored at `packs/attack/enterprise-attack.json`, build technique →
-  tactic mapping, full matrix grid.
-- `internal/matrix/{matrix.go,html.go,json.go}`.
-- `ui/server.go`, `ui/handlers/{home.go,runs.go,run_detail.go,matrix.go}`.
-- `ui/templates/*.templ` — base layout, matrix grid, run list, run detail,
-  drift view.
-- `ui/static/{htmx.min.js,style.css}`.
-- `cmd/eyeexam/cmd_serve.go`, `cmd_matrix.go` — `matrix` exports HTML/JSON
-  to a path; `serve` runs the read-only HTTP server.
-- `make build` wires `templ generate`.
+**Why retracted.** eyeexam is a periodic-batch tool whose outputs are
+naturally reports — generated on cron-tick boundaries, consumed at
+review-time. A "live" web viewer was the wrong shape:
+- The data is sampled discretely (per run / per scheduler fire), not
+  streamed; "look at it now in the browser" gives the same snapshot as
+  "open the report file."
+- Running a server doubles the deployment surface (bind safety, mux
+  config, html-template escape boundary) without adding capability the
+  CLI doesn't already cover.
+- M9-A (`--actor-app`) closed the actor-attribution gap that login
+  would have addressed; with no writes in the UI, login never earned
+  its weight (M9-B was implicitly retracted with the rest of the UI).
 
-**Definition of done.**
+**What replaced it.** `eyeexam report coverage|run|matrix` produces
+standalone HTML (or JSON) documents that render anywhere, attach to
+tickets cleanly, and don't require a running daemon. The
+`internal/report` package owns all rendering; `internal/matrix` was
+folded in as `internal/report/matrix.go` with an added `--engagement`
+filter. See `docs/reports.md`.
 
-- `eyeexam matrix --out matrix.html` produces a standalone HTML file with
-  green/yellow/red/grey cells over real run data.
-- `eyeexam serve` exposes `/`, `/runs`, `/runs/<id>`, `/matrix`. Default
-  bind is `127.0.0.1:8088` and refuses to bind a non-loopback address
-  without an explicit `--listen` and `--insecure-public` confirmation flag.
-- Drift view ranks techniques by green→red regression in the configured
-  window.
+**Files removed.** `ui/` (server, handlers, templates, static, tests),
+`internal/matrix/`, `cmd/eyeexam/cmd_serve.go`, `cmd/eyeexam/cmd_matrix.go`,
+`config.UIConfig`, the `--listen` + `--insecure-public` flags. Net
+−750 lines including tests.
+
+**If this is ever revisited.** A web UI re-enters scope only if eyeexam
+gains *write* actions (trigger an ad-hoc run from the browser, edit
+schedules, acknowledge alerts) that don't have a clean CLI answer. A
+read-only viewer alone is duplicative of what the report files cover.
 
 ### M6 — Wazuh + Elastic + Splunk detectors
 

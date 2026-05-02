@@ -50,9 +50,7 @@ func newRootCmd() *cobra.Command {
 		newRunCmd(),
 		newRunsCmd(),
 		newAuditCmd(),
-		newMatrixCmd(),
 		newReportCmd(),
-		newServeCmd(),
 		newScheduleCmd(),
 		newSchedulerCmd(),
 	)

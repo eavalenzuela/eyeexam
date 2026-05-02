@@ -94,7 +94,7 @@ detectors:
 
 ## Health checks
 
-`eyeexam serve` and `eyeexam run` build the detector registry once. Each
+`eyeexam run` and `eyeexam scheduler run` build the detector registry once. Each
 detector exposes `HealthCheck`, called by future iterations of `eyeexam
 inventory check` (M2 covers ssh; detector health is an M6+ enhancement).
 For now the easiest probe is to run a real `eyeexam run --pack builtin`

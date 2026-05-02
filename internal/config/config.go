@@ -22,7 +22,6 @@ type Config struct {
 	Packs      []PackConfig     `yaml:"packs"`
 	PackKeys   []string         `yaml:"pack_keys"` // PEM ed25519 pubkey paths used to verify MANIFEST.sig
 	Limits     Limits           `yaml:"limits"`
-	UI         UIConfig         `yaml:"ui"`
 }
 
 type Engagement struct {
@@ -79,10 +78,6 @@ type Limits struct {
 	PerHostConcurrency   int     `yaml:"per_host_concurrency"`
 }
 
-type UIConfig struct {
-	Listen string `yaml:"listen"`
-}
-
 // Defaults returns a Config populated with sensible defaults. Callers
 // override fields after Defaults() and before Validate().
 func Defaults() Config {
@@ -107,7 +102,6 @@ func Defaults() Config {
 			GlobalTestsPerSecond: 1,
 			PerHostConcurrency:   1,
 		},
-		UI: UIConfig{Listen: "127.0.0.1:8088"},
 	}
 }
 

@@ -6,9 +6,10 @@ whether the detection actually fired. Atomic Red Team supplies the
 techniques; eyeexam runs them, asks the SIEM what it saw, and produces
 an ATT&CK coverage heatmap.
 
-> **Status: M1–M8 shipped.** Local + SSH runners; loki + slither + wazuh
-> + elastic + splunk detectors; ATT&CK matrix HTML/JSON viewer; cron
-> scheduler with drift alerts. See
+> **Status: shipped.** Local + SSH runners; loki + wazuh + elastic +
+> splunk detectors (slither stub pending upstream API); ed25519 pack
+> signing; cron scheduler with drift alerts; HTML/JSON reports for
+> coverage, per-run detail, and the ATT&CK matrix. See
 > [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) for the per-milestone build
 > log.
 
@@ -27,10 +28,16 @@ make build
     --authorized --engagement HOMELAB-2026 --max-dest low --yes
 
 ./bin/eyeexam runs show <run-id>
-./bin/eyeexam matrix --out matrix.html
-./bin/eyeexam serve              # http://127.0.0.1:8088
+./bin/eyeexam report run <run-id> --out run.html      # eye-candy HTML
+./bin/eyeexam report matrix --out matrix.html         # ATT&CK heatmap
+./bin/eyeexam report coverage --engagement HOMELAB-2026 --out coverage.html
 ./bin/eyeexam audit verify
 ```
+
+eyeexam outputs files, not a server. There is no `eyeexam serve` —
+`report ...` produces standalone HTML documents with inlined CSS that
+render anywhere (`xdg-open`, scp to a shared dir, attach to a ticket).
+JSON output (`--format json`) is for ingestion by other tooling.
 
 The bundled `builtin` pack — three smoke tests, low destructiveness,
 `/tmp`-only, verify_cleanup enforced — is **embedded into the binary**.
@@ -62,7 +69,7 @@ returned ambiguous results — it is **never** silently collapsed into
 | Detectors    | `loki`, `slither`, `wazuh`, `elastic`, `splunk`         |
 | Pack formats | eyeexam-native YAML, Atomic Red Team YAML (sidecar exp.) |
 | Alert sinks  | `webhook`, `ntfy`, `discord`                            |
-| UI           | server-rendered HTML at `/`, `/runs`, `/runs/<id>`, `/matrix` |
+| Reports      | standalone HTML or JSON: `report coverage` / `report run` / `report matrix` |
 | Audit        | append-only ed25519-signed JSONL chain (`audit verify`) |
 
 ## CLI surface
@@ -75,13 +82,13 @@ eyeexam inventory list | check
 eyeexam plan --pack <name> [--tag <t>] [--hosts ...] [--tests ...]
 eyeexam run  --pack <name> --authorized --engagement <id> \
              [--max-dest low|medium|high] [--dry-run] [--seed N] [--yes]
-eyeexam runs list [--engagement <id>] | show <run-id> [--json]
-eyeexam matrix [--out matrix.html] [--json] [--window-days 30] [--stix <path>]
-eyeexam serve  [--listen 127.0.0.1:8088] [--insecure-public]
-eyeexam audit  verify
-eyeexam report coverage --engagement <id> [--since 30d] [--format md|json] [--out <path>]
+eyeexam runs list [--engagement <id>] | show <run-id> [--json] | resume <run-id>
+eyeexam audit verify | show [--run <id>] [--event <name>] [--actor <substr>] [--since <dur>] [--json]
+eyeexam report coverage [--engagement <id>] [--since 30d] [--format html|json] [--out <path>]
+eyeexam report run     <run-id>                 [--format html|json] [--out <path>]
+eyeexam report matrix  [--engagement <id>]      [--since 30d] [--format html|json] [--out <path>]
 eyeexam schedule add | list | remove
-eyeexam scheduler run [--interval 30s]
+eyeexam scheduler run [--interval 30s] [--audit-verify-interval 1h]
 ```
 
 ## Topic-by-topic docs
@@ -92,6 +99,9 @@ eyeexam scheduler run [--interval 30s]
 - **Scheduler & drift alerts** — `docs/scheduler.md`
 - **Slither integration (read-only detector)** — `docs/slither-detector.md`
 - **Actor identity (`--actor-app`)** — `docs/actor-app.md`
+- **Audit log model + verification** — `docs/audit-log.md`
+- **Pack signing** — `docs/pack-signing.md`
+- **Reports** — `docs/reports.md`
 - **Project spec** — `PLAN.md`
 - **Engineering plan & milestone log** — `IMPLEMENTATION.md`
 
@@ -107,17 +117,17 @@ internal/
   detector/          Detector iface + 5 backends
   idgen/             sortable opaque ids
   inventory/         hosts + selectors
-  matrix/            ATT&CK heatmap builder + HTML/JSON renderers
-  pack/              native + atomic loaders + refuse list
+  pack/              native + atomic loaders + refuse list + signing
     embedded/        binary-embedded builtin pack (//go:embed)
+    signature/       ed25519 manifest verifier
   rate/              per-host semaphore + global rate limiter
+  report/            HTML + JSON renderers for coverage/run/matrix
   runner/            Runner iface + local/ssh
   runlife/           plan → execute → wait → query → score → cleanup → report
   scheduler/         cron-driven daemon
   score/             caught/missed/uncertain + drift detection
   store/             SQLite + embedded migrations
   version/
-ui/                  read-only HTTP viewer (html/template)
 tests/
   e2e/               integration tests (local, ssh, full pipeline, scheduler drift)
   fixtures/          atomic + native test fixtures

@@ -59,11 +59,10 @@ eyeexam/
       loki.go
     score/                # caught/missed/uncertain logic, dedup, aggregation
     cleanup/              # cleanup execution + verification
-    matrix/               # ATT&CK heatmap renderer (HTML + JSON)
+    report/               # HTML+JSON renderers for coverage/run/matrix
     store/                # SQLite: runs, executions, scores, cleanup state
     audit/                # append-only signed audit log
-  ui/                     # minimal templ + HTMX read-only run viewer
-  packs/                  # bundled native test packs (smoke / sanity)
+    pack/embedded/        # binary-embedded builtin pack (//go:embed)
 ```
 
 Default datastore is SQLite. Findings, run history, and the ATT&CK matrix
@@ -253,8 +252,8 @@ state.
 
 ## ATT&CK matrix
 
-Rendered server-side as HTML using the standard MITRE ATT&CK matrix
-layout. Each cell carries a count and a status color:
+Rendered as a standalone HTML document via `eyeexam report matrix
+--out matrix.html`. Each cell carries a count and a status color:
 
 - **green** — at least one test for this technique was run in the window
   and was caught.
@@ -264,11 +263,11 @@ layout. Each cell carries a count and a status color:
   `missed`.
 - **grey** — no test for this technique in the configured packs.
 
-Toggle: per-host, per-tag, per-time-window. Click a cell → list of recent
-executions and their scores. Export the matrix as JSON for embedding into
-other dashboards. Drift view: "techniques that were green last month and
-are red now" is the highest-value report and lives on the dashboard
-homepage.
+Filters: `--engagement <id>`, `--since <dur>`. Drift section lists
+techniques whose state regressed (green → yellow/red) inside the window.
+Export the matrix as JSON (`--format json`) for ingestion by other
+tooling. Reports are files; eyeexam does not run a viewer daemon — see
+[`docs/reports.md`](./docs/reports.md) for the rationale.
 
 ## Audit log
 
@@ -311,9 +310,10 @@ eyeexam run    --pack <name> --tag <t> [--hosts ...] [--tests ...] \
 eyeexam runs   list
 eyeexam runs   show   <run-id>
 eyeexam runs   resume <run-id>
-eyeexam matrix [--since 30d] [--tag <t>] [--out matrix.html]
-eyeexam audit  verify
-eyeexam serve  [--listen :8088]              # read-only web UI for runs + matrix
+eyeexam audit  verify | show ...
+eyeexam report coverage | run | matrix    # HTML or JSON, file output
+eyeexam schedule add | list | remove
+eyeexam scheduler run
 ```
 
 ## Packaging & deps
@@ -346,8 +346,12 @@ eyeexam serve  [--listen :8088]              # read-only web UI for runs + matri
    loop, scoring (caught / missed / uncertain), cleanup verification.
 4. **M4 — Atomic Red Team support + sidecar expectations.** Vendored
    pack, `pack update`, expectation sidecar layout.
-5. **M5 — ATT&CK matrix + read-only UI.** HTML matrix, run viewer, drift
-   view on the homepage.
+5. **M5 — ATT&CK matrix + read-only UI.** *UI retracted.* Shipped as
+   a server-rendered html/template viewer at `eyeexam serve`, then
+   replaced post-M9 with standalone HTML reports (`eyeexam report
+   coverage|run|matrix`). The viewer was a hybrid daemon that didn't
+   match eyeexam's periodic-batch shape; reports are files, which do.
+   See IMPLEMENTATION.md §7 M5.
 6. **M6 — additional detectors.** Wazuh, Elastic, Splunk.
 7. **M7 — slither runner.** *Retracted.* The plan was to dispatch BAS
    commands via slither agents; this was withdrawn (slither stays

@@ -139,8 +139,5 @@ runner:
 limits:
   global_tests_per_second: 1
   per_host_concurrency: 1
-
-ui:
-  listen: 127.0.0.1:8088
 `, engagementID, dataDir, keyPath, dataDir)
 }
