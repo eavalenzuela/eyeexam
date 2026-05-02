@@ -2,7 +2,6 @@ package report
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,8 +100,5 @@ func TestBuildRunNotFound(t *testing.T) {
 	_, err = BuildRun(ctx, st, "r-does-not-exist")
 	if err == nil {
 		t.Fatal("expected not-found error")
-	}
-	if err == sql.ErrNoRows {
-		// store wraps; just sanity check
 	}
 }
