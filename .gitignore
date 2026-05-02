@@ -2,7 +2,8 @@
 /dist/
 *.test
 *.out
-coverage.*
+coverage.html
+coverage.txt
 .eyeexam/
 *.db
 *.db-journal
