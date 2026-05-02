@@ -1,0 +1,42 @@
+{{define "content"}}
+<h1 class="page">ATT&amp;CK coverage{{if .Engagement}} — {{.Engagement}}{{end}}</h1>
+<p class="muted">window {{.Window.Since.Format "2006-01-02"}} → {{.Window.Until.Format "2006-01-02"}}</p>
+
+<div class="matrix">
+{{range .Tactics}}
+<div class="col">
+<h2>{{.Name}}<small>{{.ID}}</small></h2>
+{{range .Cells}}
+<div class="mcell {{.State}}">
+  <span class="id">{{.TechniqueID}}</span>
+  <span class="name">{{.TechniqueName}}</span>
+  {{if or .Caught .Missed .Uncertain}}
+  <span class="counts">✓ {{.Caught}} · ✗ {{.Missed}} · ? {{.Uncertain}}</span>
+  {{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+</div>
+
+{{if .Drift}}
+<section>
+<h2>Recent regressions</h2>
+<table>
+<thead><tr><th>technique</th><th>was</th><th>now</th><th>at</th></tr></thead>
+<tbody>
+{{range .Drift}}
+<tr>
+  <td><code>{{.TechniqueID}}</code> — {{.TechniqueName}}</td>
+  <td><span class="cell {{.From}}">{{.From}}</span></td>
+  <td><span class="cell {{.To}}">{{.To}}</span></td>
+  <td>{{.At.Format "2006-01-02 15:04Z"}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+{{end}}
+
+{{template "layout" .}}

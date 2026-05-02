@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/eavalenzuela/eyeexam/internal/attack"
@@ -18,9 +17,10 @@ import (
 )
 
 // Coverage is the structured form of a coverage report. Renderers
-// (Markdown, JSON) consume this; CLI parses operator flags into a
+// (HTML, JSON) consume this; CLI parses operator flags into a
 // CoverageRequest, builds Coverage via Build, picks a renderer.
 type Coverage struct {
+	Title          string         `json:"-"` // for HTML layout
 	Engagement     string         `json:"engagement"`
 	GeneratedAt    time.Time      `json:"generated_at"`
 	Window         Window         `json:"window"`
@@ -97,6 +97,7 @@ func Build(ctx context.Context, st *store.Store, _ *attack.Bundle, req CoverageR
 	}
 
 	cov := &Coverage{
+		Title:       "Coverage report — " + req.Engagement,
 		Engagement:  req.Engagement,
 		GeneratedAt: now,
 		Window:      Window{Since: since, Until: now},
@@ -303,82 +304,15 @@ func isWorse(from, to string) bool {
 	return rt > rf
 }
 
-// RenderMarkdown produces a human-readable report — the format
-// operators copy into a quarterly readout or paste into a ticket.
-func RenderMarkdown(c *Coverage) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Coverage report — %s\n\n", c.Engagement)
-	fmt.Fprintf(&b, "Generated %s · window %s → %s\n\n",
-		c.GeneratedAt.Format(time.RFC3339),
-		c.Window.Since.Format(time.RFC3339),
-		c.Window.Until.Format(time.RFC3339))
-
-	fmt.Fprintf(&b, "## Summary\n\n")
-	fmt.Fprintf(&b, "- Runs: %d (%d reported, %d failed)\n",
-		c.RunCount, c.ReportedCount, c.FailedCount)
-	fmt.Fprintf(&b, "- Tests executed: %d\n", c.ExecCount)
-	total := c.StateCounts.Caught + c.StateCounts.Missed + c.StateCounts.Uncertain
-	fmt.Fprintf(&b, "- Caught: %d %s\n", c.StateCounts.Caught, pct(c.StateCounts.Caught, total))
-	fmt.Fprintf(&b, "- Missed: %d %s\n", c.StateCounts.Missed, pct(c.StateCounts.Missed, total))
-	fmt.Fprintf(&b, "- Uncertain: %d %s\n", c.StateCounts.Uncertain, pct(c.StateCounts.Uncertain, total))
-	if c.StateCounts.NoExpectation > 0 {
-		fmt.Fprintf(&b, "- No expectation: %d (test ran but no detector rule was declared)\n",
-			c.StateCounts.NoExpectation)
+// RenderHTMLCoverage returns Coverage as a standalone HTML document.
+func RenderHTMLCoverage(c *Coverage) ([]byte, error) {
+	if c.Title == "" {
+		c.Title = "Coverage report — " + c.Engagement
 	}
-	if c.RefusedCount > 0 {
-		fmt.Fprintf(&b, "- Refused (hard-refuse list): %d\n", c.RefusedCount)
-	}
-	b.WriteString("\n")
-
-	if len(c.Techniques) > 0 {
-		fmt.Fprintf(&b, "## Technique coverage\n\n")
-		fmt.Fprintf(&b, "| technique | caught | uncertain | missed | latest |\n")
-		fmt.Fprintf(&b, "|-----------|--------|-----------|--------|--------|\n")
-		for _, t := range c.Techniques {
-			fmt.Fprintf(&b, "| %s | %d | %d | %d | %s |\n",
-				t.TechniqueID, t.Caught, t.Uncertain, t.Missed, t.Latest)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(c.Regressions) > 0 {
-		fmt.Fprintf(&b, "## Regressions in window\n\n")
-		for _, r := range c.Regressions {
-			fmt.Fprintf(&b, "- **%s** went %s → %s on %s (run `%s`)\n",
-				r.TechniqueID, r.From, r.To, r.At.Format(time.RFC3339), r.RunID)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(c.DestructiveOps) > 0 {
-		fmt.Fprintf(&b, "## Destructive-run authorizations\n\n")
-		for _, e := range c.DestructiveOps {
-			fmt.Fprintf(&b, "- %s · %s authorized run `%s`\n",
-				e.TS.Format(time.RFC3339), e.Actor, e.RunID)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(c.UnsignedPacks) > 0 {
-		fmt.Fprintf(&b, "## Unsigned pack loads\n\n")
-		for _, e := range c.UnsignedPacks {
-			fmt.Fprintf(&b, "- %s · run `%s` · %s\n",
-				e.TS.Format(time.RFC3339), e.RunID, e.Payload)
-		}
-		b.WriteString("\n")
-	}
-	return b.String()
+	return renderHTML("coverage.html", c)
 }
 
-// RenderJSON dumps Coverage as indented JSON, suitable for piping
-// into jq or for embedding in another tool.
-func RenderJSON(c *Coverage) ([]byte, error) {
+// RenderJSONCoverage returns Coverage as indented JSON.
+func RenderJSONCoverage(c *Coverage) ([]byte, error) {
 	return json.MarshalIndent(c, "", "  ")
-}
-
-func pct(n, total int) string {
-	if total == 0 {
-		return ""
-	}
-	return fmt.Sprintf("(%d%%)", (n*100)/total)
 }

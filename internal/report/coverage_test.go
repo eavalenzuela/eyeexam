@@ -110,23 +110,28 @@ func TestBuildCoverageHappyPath(t *testing.T) {
 		t.Errorf("UnsignedPacks=%d, want 1", len(cov.UnsignedPacks))
 	}
 
-	md := RenderMarkdown(cov)
+	htmlBytes, err := RenderHTMLCoverage(cov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(htmlBytes)
 	for _, want := range []string{
-		"# Coverage report — ENG-1",
-		"Runs: 3 (2 reported, 1 failed)",
+		"<!DOCTYPE html>",
+		"Coverage report — ENG-1",
 		"T1070.003",
 		"Regressions in window",
-		"caught → missed",
 		"Destructive-run authorizations",
 		"alice(uid=1000)",
 		"Unsigned pack loads",
+		`class="cell missed"`,
+		`class="cell caught"`,
 	} {
-		if !strings.Contains(md, want) {
-			t.Errorf("markdown missing %q\n--- markdown ---\n%s", want, md)
+		if !strings.Contains(html, want) {
+			t.Errorf("html missing %q", want)
 		}
 	}
 
-	jsonBytes, err := RenderJSON(cov)
+	jsonBytes, err := RenderJSONCoverage(cov)
 	if err != nil {
 		t.Fatal(err)
 	}

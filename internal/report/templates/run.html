@@ -1,0 +1,77 @@
+{{define "content"}}
+<h1 class="page">Run <code>{{.Run.ID}}</code></h1>
+<dl class="meta">
+  <dt>engagement</dt><dd>{{.Run.EngagementID}}</dd>
+  <dt>phase</dt><dd>{{.Run.Phase}}</dd>
+  <dt>max_dest</dt><dd>{{.Run.MaxDest}}</dd>
+  <dt>authorized</dt><dd>{{.Run.AuthorizedBy}}</dd>
+  {{if .Run.AppUser.Valid}}<dt>app_user</dt><dd>{{.Run.AppUser.String}}</dd>{{end}}
+  <dt>started</dt><dd>{{.Run.StartedAt.String}}</dd>
+  <dt>finished</dt><dd>{{.Run.FinishedAt.String}}</dd>
+  <dt>seed</dt><dd>{{.Run.Seed}}</dd>
+</dl>
+
+{{if .Executions}}
+<section>
+<h2>Executions ({{len .Executions}})</h2>
+<table>
+<thead><tr><th>exec_id</th><th>host</th><th>test</th><th>exit</th><th>detect</th><th>cleanup</th><th>verify</th></tr></thead>
+<tbody>
+{{range .Executions}}
+<tr>
+  <td><code>{{.ID}}</code></td>
+  <td>{{index $.HostNames .HostID}}</td>
+  <td><code>{{.TestID}}</code></td>
+  <td>{{.ExitCode.Int64}}</td>
+  <td><span class="cell {{.DetectionState}}">{{.DetectionState}}</span></td>
+  <td><span class="cell {{.CleanupState}}">{{.CleanupState}}</span></td>
+  <td><span class="cell {{.CleanupVerifyState}}">{{.CleanupVerifyState}}</span></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{if .Expectations}}
+<section>
+<h2>Expected detections</h2>
+<table>
+<thead><tr><th>execution</th><th>state</th><th>detector</th><th>reason</th></tr></thead>
+<tbody>
+{{range .Expectations}}
+<tr>
+  <td><code>{{.ExecutionID}}</code></td>
+  <td><span class="cell {{.State}}">{{.State}}</span></td>
+  <td>{{.DetectorName.String}}</td>
+  <td>{{.Reason.String}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{if .AuditEvents}}
+<section>
+<h2>Audit events ({{len .AuditEvents}})</h2>
+<p class="muted">Records from the signed audit log. Run <code>eyeexam audit verify</code> to confirm chain integrity.</p>
+<table class="audit">
+<thead><tr><th>seq</th><th>ts</th><th>event</th><th>actor</th><th>payload</th></tr></thead>
+<tbody>
+{{range .AuditEvents}}
+<tr>
+  <td>{{.Seq}}</td>
+  <td>{{.TS.Format "2006-01-02 15:04:05.000Z"}}</td>
+  <td><code>{{.Event}}</code></td>
+  <td><code>{{.Actor}}</code></td>
+  <td><code>{{.Payload}}</code></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+{{end}}
+
+{{template "layout" .}}

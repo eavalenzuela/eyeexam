@@ -1,0 +1,68 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{.Title}} · eyeexam report</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; margin: 0; color: #1a1a1a; background: #fafafa; }
+header { display: flex; justify-content: space-between; align-items: baseline; padding: 0.6em 1.2em; background: #1f2937; color: #f9fafb; }
+header h1 { margin: 0; font-size: 1.1em; }
+header small { color: #9ca3af; font-size: 0.75em; font-family: ui-monospace, monospace; }
+main { padding: 1em 1.6em; max-width: 1400px; }
+h1, h2, h3 { line-height: 1.2; }
+h1.page { font-size: 1.4em; margin-bottom: 0.2em; }
+h2 { font-size: 1em; margin-top: 1.6em; }
+h3 { font-size: 0.95em; margin-top: 1em; color: #4b5563; }
+section { margin-bottom: 2em; }
+p.muted { color: #6b7280; font-size: 0.9em; }
+code { font-family: ui-monospace, monospace; font-size: 0.9em; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+pre { background: #f3f4f6; padding: 8px; border-radius: 3px; overflow-x: auto; font-size: 0.78em; }
+
+table { border-collapse: collapse; font-size: 0.85em; width: 100%; max-width: 1200px; }
+th, td { padding: 4px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
+th { background: #f3f4f6; font-weight: 600; }
+table.audit td:last-child code { font-size: 0.78em; word-break: break-all; }
+
+dl.meta { display: grid; grid-template-columns: max-content 1fr; column-gap: 1em; row-gap: 0.2em; font-size: 0.9em; }
+dl.meta dt { color: #4b5563; }
+dl.meta dd { margin: 0; font-family: ui-monospace, monospace; font-size: 0.95em; }
+
+.cell { display: inline-block; padding: 1px 8px; border-radius: 3px; font-size: 0.8em; font-family: ui-monospace, monospace; }
+.cell.green, .cell.caught { background: #c6e8c2; color: #014; }
+.cell.yellow, .cell.uncertain { background: #f4e4a1; color: #432; }
+.cell.red, .cell.missed { background: #f0b3ad; color: #401; }
+.cell.grey, .cell.no_expectation, .cell.pending { background: #e7e7e7; color: #555; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; max-width: 900px; }
+.summary .stat { padding: 8px 12px; border-radius: 4px; background: #fff; border: 1px solid #e5e7eb; }
+.summary .stat .label { font-size: 0.75em; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+.summary .stat .value { font-size: 1.4em; font-weight: 600; margin-top: 2px; }
+.summary .stat.caught .value { color: #15803d; }
+.summary .stat.missed .value { color: #b91c1c; }
+.summary .stat.uncertain .value { color: #a16207; }
+
+.matrix { display: grid; gap: 8px; align-items: start; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 1em; }
+.matrix .col h2 { font-size: 0.85em; margin: 0 0 6px; padding: 4px 6px; background: #eee; border-radius: 3px; }
+.matrix .col h2 small { float: right; color: #888; font-weight: 400; }
+.matrix .mcell { padding: 6px 8px; margin-bottom: 4px; border-radius: 3px; font-size: 0.78em; line-height: 1.25; }
+.matrix .mcell .id { font-weight: 600; }
+.matrix .mcell .name { display: block; }
+.matrix .mcell .counts { display: block; color: rgba(0,0,0,0.55); margin-top: 2px; font-size: 0.95em; }
+.matrix .mcell.green { background: #c6e8c2; }
+.matrix .mcell.yellow { background: #f4e4a1; }
+.matrix .mcell.red { background: #f0b3ad; }
+.matrix .mcell.grey { background: #e7e7e7; color: #666; }
+</style>
+</head>
+<body>
+<header>
+  <h1>eyeexam · {{.Title}}</h1>
+  <small>generated {{.GeneratedAt.Format "2006-01-02 15:04:05Z"}}</small>
+</header>
+<main>
+{{template "content" .}}
+</main>
+</body>
+</html>
+{{end}}
