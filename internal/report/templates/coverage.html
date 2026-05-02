@@ -1,0 +1,98 @@
+{{define "content"}}
+<h1 class="page">Coverage report — {{.Engagement}}</h1>
+<p class="muted">window {{.Window.Since.Format "2006-01-02"}} → {{.Window.Until.Format "2006-01-02"}}</p>
+
+<section>
+<h2>Summary</h2>
+<div class="summary">
+  <div class="stat"><div class="label">runs</div><div class="value">{{.RunCount}}</div></div>
+  <div class="stat"><div class="label">reported</div><div class="value">{{.ReportedCount}}</div></div>
+  {{if .FailedCount}}<div class="stat"><div class="label">failed</div><div class="value">{{.FailedCount}}</div></div>{{end}}
+  <div class="stat"><div class="label">executions</div><div class="value">{{.ExecCount}}</div></div>
+  <div class="stat caught"><div class="label">caught</div><div class="value">{{.StateCounts.Caught}}</div></div>
+  <div class="stat missed"><div class="label">missed</div><div class="value">{{.StateCounts.Missed}}</div></div>
+  <div class="stat uncertain"><div class="label">uncertain</div><div class="value">{{.StateCounts.Uncertain}}</div></div>
+  {{if .StateCounts.NoExpectation}}<div class="stat"><div class="label">no expectation</div><div class="value">{{.StateCounts.NoExpectation}}</div></div>{{end}}
+  {{if .RefusedCount}}<div class="stat"><div class="label">refused</div><div class="value">{{.RefusedCount}}</div></div>{{end}}
+</div>
+</section>
+
+{{if .Techniques}}
+<section>
+<h2>Technique coverage</h2>
+<table>
+<thead><tr><th>technique</th><th>caught</th><th>uncertain</th><th>missed</th><th>latest</th></tr></thead>
+<tbody>
+{{range .Techniques}}
+<tr>
+  <td><code>{{.TechniqueID}}</code></td>
+  <td>{{.Caught}}</td><td>{{.Uncertain}}</td><td>{{.Missed}}</td>
+  <td><span class="cell {{.Latest}}">{{.Latest}}</span></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{if .Regressions}}
+<section>
+<h2>Regressions in window</h2>
+<table>
+<thead><tr><th>technique</th><th>was</th><th>now</th><th>at</th><th>run</th></tr></thead>
+<tbody>
+{{range .Regressions}}
+<tr>
+  <td><code>{{.TechniqueID}}</code></td>
+  <td><span class="cell {{.From}}">{{.From}}</span></td>
+  <td><span class="cell {{.To}}">{{.To}}</span></td>
+  <td>{{.At.Format "2006-01-02 15:04Z"}}</td>
+  <td><a href="{{.RunID}}.html"><code>{{.RunID}}</code></a></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{if .DestructiveOps}}
+<section>
+<h2>Destructive-run authorizations</h2>
+<table>
+<thead><tr><th>seq</th><th>ts</th><th>actor</th><th>run</th></tr></thead>
+<tbody>
+{{range .DestructiveOps}}
+<tr>
+  <td>{{.Seq}}</td>
+  <td>{{.TS.Format "2006-01-02 15:04Z"}}</td>
+  <td><code>{{.Actor}}</code></td>
+  <td><a href="{{.RunID}}.html"><code>{{.RunID}}</code></a></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+{{if .UnsignedPacks}}
+<section>
+<h2>Unsigned pack loads</h2>
+<p class="muted">Packs loaded without signature verification (per <code>unsigned: true</code> in operator config).</p>
+<table>
+<thead><tr><th>seq</th><th>ts</th><th>run</th><th>payload</th></tr></thead>
+<tbody>
+{{range .UnsignedPacks}}
+<tr>
+  <td>{{.Seq}}</td>
+  <td>{{.TS.Format "2006-01-02 15:04Z"}}</td>
+  <td><code>{{.RunID}}</code></td>
+  <td><code>{{.Payload}}</code></td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+{{end}}
+
+{{template "layout" .}}
