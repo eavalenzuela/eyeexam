@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,10 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/eavalenzuela/eyeexam/internal/audit"
-	"github.com/eavalenzuela/eyeexam/internal/inventory"
 	"github.com/eavalenzuela/eyeexam/internal/runlife"
-	"github.com/eavalenzuela/eyeexam/internal/runner"
 	"github.com/eavalenzuela/eyeexam/internal/store"
 )
 
@@ -20,7 +18,25 @@ func newRunsCmd() *cobra.Command {
 	cmd.AddCommand(newRunsListCmd())
 	cmd.AddCommand(newRunsShowCmd())
 	cmd.AddCommand(newRunsResumeCmd())
+	cmd.AddCommand(newRunsCleanupCmd())
 	return cmd
+}
+
+// engineFromConfig builds a runlife engine from shared deps using the config's
+// EDR settings (cleanup mode, pacing, step timeout). Used by resume + cleanup,
+// which take these from config rather than per-invocation flags.
+func engineFromConfig(deps *runtimeDeps) (*runlife.Engine, error) {
+	return runlife.New(runlife.Options{
+		Store: deps.store, Audit: deps.audit, Registry: deps.reg, Inventory: deps.inv,
+		Runners:         deps.runners,
+		Detectors:       deps.detectors,
+		GlobalRateTPS:   deps.cfg.Limits.GlobalTestsPerSecond,
+		PerHostConcur:   deps.cfg.Limits.PerHostConcurrency,
+		CleanupMode:     deps.cfg.Cleanup.EffectiveMode(),
+		InterTestPace:   deps.cfg.Limits.Pace(),
+		InterTestJitter: deps.cfg.Limits.Jitter(),
+		StepTimeout:     deps.cfg.Limits.Step(),
+	})
 }
 
 func newRunsResumeCmd() *cobra.Command {
@@ -40,31 +56,13 @@ A run in phase=failed must be inspected before resuming.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runID := args[0]
 
-			cfg, err := loadConfig()
+			deps, err := loadRuntime(actorApp)
 			if err != nil {
 				return err
 			}
-			inv, err := inventory.Load(cfg.Inventory.Path)
-			if err != nil {
-				return err
-			}
-			reg, atomicSkipped, unsignedPacks, err := buildPackRegistry(cfg)
-			if err != nil {
-				return err
-			}
-			for name, skipped := range atomicSkipped {
-				for _, s := range skipped {
-					fmt.Fprintf(os.Stderr, "atomic pack %q: skipped %s — %s\n", name, s.ID, s.Reason)
-				}
-			}
+			defer deps.close()
 
-			st, err := store.Open(ctx(), cfg.DBPath())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = st.Close() }()
-
-			r, err := st.GetRun(ctx(), runID)
+			r, err := deps.store.GetRun(ctx(), runID)
 			if err != nil {
 				return err
 			}
@@ -76,58 +74,18 @@ A run in phase=failed must be inspected before resuming.`,
 				return fmt.Errorf("run %s is in phase=failed; inspect before resuming", runID)
 			}
 
-			priv, err := loadAuditKey(cfg.Audit.KeyPath)
-			if err != nil {
-				return fmt.Errorf("load audit key: %w", err)
-			}
-			al, err := audit.Open(cfg.Audit.LogPath, priv, st.DB)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = al.Close() }()
+			emitUnsignedPackAudit(ctx(), deps.audit, deps.actor, r.EngagementID, deps.unsignedPacks)
 
-			actor, err := audit.ActorFromOS(ctx())
-			if err != nil {
-				return err
-			}
-			if actorApp != "" {
-				if err := audit.ValidateAppUser(actorApp); err != nil {
-					return err
-				}
-				v := actorApp
-				actor.AppUser = &v
-			}
-
-			emitUnsignedPackAudit(ctx(), al, actor, r.EngagementID, unsignedPacks)
-
-			runners := map[string]runner.Runner{"local": runner.NewLocal()}
-			if hostsUseTransport(inv, "ssh") {
-				sshR, err := buildSSHRunner(cfg)
-				if err != nil {
-					return fmt.Errorf("ssh runner: %w", err)
-				}
-				runners["ssh"] = sshR
-				defer func() { _ = sshR.Close() }()
-			}
-
-			dreg, err := buildDetectorRegistry(cfg)
-			if err != nil {
-				return fmt.Errorf("detector registry: %w", err)
-			}
-
-			eng, err := runlife.New(runlife.Options{
-				Store: st, Audit: al, Registry: reg, Inventory: inv,
-				Runners: runners, Detectors: dreg,
-				GlobalRateTPS: cfg.Limits.GlobalTestsPerSecond,
-				PerHostConcur: cfg.Limits.PerHostConcurrency,
-			})
+			eng, err := engineFromConfig(deps)
 			if err != nil {
 				return err
 			}
 
 			fmt.Printf("resuming run %s from phase=%s\n", runID, r.Phase)
-			if err := eng.Resume(ctx(), runID, actor); err != nil {
-				return fmt.Errorf("resume %s: %w", runID, err)
+			if err := runWithGracefulAbort(eng, runID, deps.actor, func(c context.Context) error {
+				return eng.Resume(c, runID, deps.actor)
+			}); err != nil {
+				return err
 			}
 			fmt.Printf("run %s completed — see 'eyeexam runs show %s'\n", runID, runID)
 			return nil
@@ -135,6 +93,101 @@ A run in phase=failed must be inspected before resuming.`,
 	}
 	cmd.Flags().StringVar(&actorApp, "actor-app", "", "human identity to record on the resume actor")
 	return cmd
+}
+
+func newRunsCleanupCmd() *cobra.Command {
+	var (
+		allPending bool
+		actorApp   string
+	)
+	cmd := &cobra.Command{
+		Use:   "cleanup [run-id]",
+		Short: "Revert file-modifying tests left pending by an interrupted run",
+		Long: `Drains staged cleanups. For every execution whose cleanup or
+cleanup-verify never finished, this re-runs the test's cleanup + verify steps,
+independent of the wait/query/score phases. Use it to recover a host after a
+run was interrupted — an EDR killed the process, Ctrl-C, a dropped SSH session,
+power loss — so changes to files such as ~/.ssh/authorized_keys, the crontab,
+or ~/.bashrc are reverted rather than left behind.
+
+  eyeexam runs cleanup <run-id>       # drain one run
+  eyeexam runs cleanup --all-pending   # drain every run with pending cleanup
+
+Idempotent: executions already cleaned up are skipped, so it is safe to run
+more than once.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if allPending == (len(args) == 1) {
+				return fmt.Errorf("provide exactly one of <run-id> or --all-pending")
+			}
+
+			deps, err := loadRuntime(actorApp)
+			if err != nil {
+				return err
+			}
+			defer deps.close()
+
+			emitUnsignedPackAudit(ctx(), deps.audit, deps.actor, deps.cfg.Engagement.ID, deps.unsignedPacks)
+
+			eng, err := engineFromConfig(deps)
+			if err != nil {
+				return err
+			}
+
+			if allPending {
+				ids, err := eng.CleanupAllPending(ctx(), deps.actor)
+				if err != nil {
+					return err
+				}
+				if len(ids) == 0 {
+					fmt.Println("no runs with pending cleanup")
+					return nil
+				}
+				for _, id := range ids {
+					reportCleanup(deps.store, id)
+				}
+				return nil
+			}
+
+			runID := args[0]
+			if _, err := deps.store.GetRun(ctx(), runID); err != nil {
+				return err
+			}
+			before, err := deps.store.CountPendingCleanupForRun(ctx(), runID)
+			if err != nil {
+				return err
+			}
+			if before == 0 {
+				fmt.Printf("run %s: nothing pending to clean up\n", runID)
+				return nil
+			}
+			if err := eng.DrainCleanup(ctx(), runID, deps.actor); err != nil {
+				return fmt.Errorf("run %s: drain cleanup: %w", runID, err)
+			}
+			reportCleanup(deps.store, runID)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&allPending, "all-pending", false, "drain cleanups for every run that has any")
+	cmd.Flags().StringVar(&actorApp, "actor-app", "", "human identity to record on the cleanup actor")
+	return cmd
+}
+
+// reportCleanup prints how many executions in runID still await cleanup after
+// a drain (0 = fully reverted; >0 = some cleanup steps failed — inspect with
+// `eyeexam runs show`).
+func reportCleanup(st *store.Store, runID string) {
+	remaining, err := st.CountPendingCleanupForRun(ctx(), runID)
+	if err != nil {
+		fmt.Printf("run %s: drained (could not recount: %v)\n", runID, err)
+		return
+	}
+	if remaining == 0 {
+		fmt.Printf("run %s: cleanup complete — no pending executions\n", runID)
+		return
+	}
+	fmt.Printf("run %s: %d execution(s) still pending after drain — see 'eyeexam runs show %s'\n",
+		runID, remaining, runID)
 }
 
 func newRunsListCmd() *cobra.Command {

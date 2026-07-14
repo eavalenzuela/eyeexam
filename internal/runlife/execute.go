@@ -98,6 +98,7 @@ func (e *Engine) phaseExecute(ctx context.Context, r store.Run, plan Plan, actor
 	}
 
 	skippedHosts := map[string]bool{}
+	executed := false
 	for _, pt := range plan.Tests {
 		if done[pt.HostID+"|"+pt.TestID] {
 			continue
@@ -105,13 +106,21 @@ func (e *Engine) phaseExecute(ctx context.Context, r store.Run, plan Plan, actor
 		if skippedHosts[pt.HostID] {
 			continue
 		}
+		// Pace/jitter between real executions (not before the first, and
+		// not for skipped tuples) so a live EDR sees spread-out activity
+		// rather than a burst.
+		if executed {
+			if err := e.pace(ctx); err != nil {
+				return err
+			}
+		}
 		if err := e.limiter.Wait(ctx); err != nil {
 			return err
 		}
 		if err := e.hostSem.Acquire(ctx, pt.HostID); err != nil {
 			return err
 		}
-		err := e.executeOneTest(ctx, r, pt, actor)
+		exID, err := e.executeOneTest(ctx, r, pt, actor)
 		e.hostSem.Release(pt.HostID)
 		if err != nil {
 			// If the failure is a per-host issue (runner missing,
@@ -137,8 +146,41 @@ func (e *Engine) phaseExecute(ctx context.Context, r store.Run, plan Plan, actor
 			}
 			return err
 		}
+		executed = true
+		// Eager cleanup: revert this test before moving on, so an EDR
+		// killing a later test cannot strand this one's file changes.
+		// Skip if the run is already being aborted (ctx cancelled): running
+		// cleanup on a dead context would only mark it failed. Leaving it
+		// pending lets the graceful-abort drain revert it on a fresh context.
+		if e.cleanupMode == CleanupEager && exID != "" && ctx.Err() == nil {
+			if err := e.cleanupExecByID(ctx, r.ID, exID, actor); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// pace sleeps interTestPace plus a uniform random [0,interTestJitter) between
+// consecutive executions. It is context-aware so a graceful abort interrupts
+// the delay rather than waiting it out.
+func (e *Engine) pace(ctx context.Context) error {
+	d := e.interTestPace
+	if e.interTestJitter > 0 {
+		d += time.Duration(e.jitterRand.Int63n(int64(e.interTestJitter)))
+	}
+	if d <= 0 {
+		return nil
+	}
+	e.log.Debug("pacing between tests", "delay", d.String())
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // isHostLevelError returns true for runner / dial / shell errors that scope
@@ -168,22 +210,25 @@ func containsCaseSensitive(s, sub string) bool {
 	return false
 }
 
-func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest, actor audit.Actor) error {
+// executeOneTest runs a single planned test and returns the id of the
+// persisted execution row (also returned on a non-store failure so the
+// caller can drive eager cleanup / drain against a partially-run test).
+func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest, actor audit.Actor) (string, error) {
 	t, err := e.testByID(pt.TestID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	hostRow, err := e.store.GetHostByName(ctx, pt.HostName)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var h inventory.Host
 	if err := json.Unmarshal([]byte(hostRow.InventoryJSON), &h); err != nil {
-		return fmt.Errorf("runlife: parse host %s: %w", hostRow.Name, err)
+		return "", fmt.Errorf("runlife: parse host %s: %w", hostRow.Name, err)
 	}
 	rn, err := e.runnerFor(h)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	exID := idgen.Execution()
@@ -210,10 +255,10 @@ func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest
 		exec.AttackTactic = sql.NullString{String: t.Attack.Tactic, Valid: true}
 	}
 	if err := e.store.InsertExecution(ctx, exec); err != nil {
-		return err
+		return "", err
 	}
 
-	stdout, stderr, exitCode, dur, extra, runErr := runSteps(ctx, rn, h, t.Execute, map[string]string{
+	stdout, stderr, exitCode, dur, extra, runErr := runSteps(ctx, rn, h, t.Execute, e.stepTimeout, map[string]string{
 		"EYEEXAM_CONTROL_ID": exID,
 		"EYEEXAM_RUN_ID":     r.ID,
 		"EYEEXAM_ENGAGEMENT": r.EngagementID,
@@ -240,21 +285,22 @@ func (e *Engine) executeOneTest(ctx context.Context, r store.Run, pt PlannedTest
 	}
 
 	if err := e.store.UpdateExecution(ctx, exec); err != nil {
-		return err
+		return exID, err
 	}
 	if err := e.persistExpectedDetections(ctx, exec, t); err != nil {
-		return err
+		return exID, err
 	}
-	return nil
+	return exID, nil
 }
 
 // runSteps executes a slice of pack steps in order, returning combined
 // stdout / stderr / exit / duration plus an Extra map merged across all
-// steps' Result.Extra. Stops at the first non-zero exit.
-func runSteps(ctx context.Context, rn runner.Runner, host inventory.Host, steps []pack.Step, env map[string]string) (stdout, stderr []byte, exitCode int, total time.Duration, extra map[string]string, err error) {
+// steps' Result.Extra. Stops at the first non-zero exit. A non-zero
+// stepTimeout bounds each individual step.
+func runSteps(ctx context.Context, rn runner.Runner, host inventory.Host, steps []pack.Step, stepTimeout time.Duration, env map[string]string) (stdout, stderr []byte, exitCode int, total time.Duration, extra map[string]string, err error) {
 	for _, s := range steps {
 		res, runErr := rn.Execute(ctx, host, runner.ExecuteStep{
-			Shell: s.Shell, Command: s.Command, Env: env,
+			Shell: s.Shell, Command: s.Command, Env: env, Timeout: stepTimeout,
 		})
 		stdout = append(stdout, res.Stdout...)
 		stderr = append(stderr, res.Stderr...)
@@ -347,11 +393,16 @@ func itoa(i int) string {
 }
 
 func (e *Engine) fail(ctx context.Context, runID string, actor audit.Actor, cause error) error {
-	_ = e.store.UpdateRunPhase(ctx, runID, "failed")
-	_ = e.store.MarkRunFinished(ctx, runID)
+	// Detach from the run context for bookkeeping. When a run is aborted via a
+	// cancelled context (SIGINT/SIGTERM), writes on that same context would
+	// fail and leave the run stuck in a non-terminal phase; WithoutCancel keeps
+	// context values but ignores the cancellation so the failure is recorded.
+	bg := context.WithoutCancel(ctx)
+	_ = e.store.UpdateRunPhase(bg, runID, "failed")
+	_ = e.store.MarkRunFinished(bg, runID)
 	if e.audit != nil {
 		payload, _ := json.Marshal(map[string]string{"reason": cause.Error()})
-		_, _ = e.audit.Append(ctx, audit.Record{
+		_, _ = e.audit.Append(bg, audit.Record{
 			Actor: actor, RunID: runID,
 			Event: "run_failed", Payload: payload,
 		})

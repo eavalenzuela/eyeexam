@@ -6,6 +6,7 @@ this directory holds the deeper material.
 
 | topic                              | start here                                |
 |------------------------------------|-------------------------------------------|
+| Running against live-EDR hosts     | [`live-edr.md`](./live-edr.md)            |
 | Deploying eyeexam over SSH         | [`deploy-ssh.md`](./deploy-ssh.md)        |
 | Using Atomic Red Team tests        | [`atomic-redteam.md`](./atomic-redteam.md) |
 | Configuring SIEM/EDR detectors     | [`detectors.md`](./detectors.md)          |

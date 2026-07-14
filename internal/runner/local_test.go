@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eavalenzuela/eyeexam/internal/inventory"
 )
@@ -37,6 +38,35 @@ func TestLocalExitCode(t *testing.T) {
 	}
 	if res.ExitCode != 7 {
 		t.Fatalf("exit=%d", res.ExitCode)
+	}
+}
+
+// TestLocalBackgroundChildStillReportsZero guards against the WaitDelay
+// misclassification: a step that exits 0 but backgrounds a child holding the
+// stdout pipe (as C2/beacon BAS tests do) must be scored exit 0, not a runner
+// error. WaitDelay bounds the wait; ProcessState carries the real exit status.
+func TestLocalBackgroundChildStillReportsZero(t *testing.T) {
+	if testing.Short() {
+		t.Skip("takes ~killGrace to drain the backgrounded pipe")
+	}
+	l := NewLocal()
+	start := time.Now()
+	// The backgrounded sleep outlives killGrace and inherits stdout, so Wait
+	// hits WaitDelay; the shell itself exited 0.
+	res, err := l.Execute(context.Background(), inventory.Host{}, ExecuteStep{
+		Shell: "bash", Command: "sleep 30 & echo started",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for a clean background start: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("exit=%d, want 0 (backgrounded child must not fail the step)", res.ExitCode)
+	}
+	if !strings.Contains(string(res.Stdout), "started") {
+		t.Fatalf("stdout=%q", res.Stdout)
+	}
+	if elapsed := time.Since(start); elapsed > killGrace+5*time.Second {
+		t.Fatalf("step took %s, WaitDelay did not bound the backgrounded pipe", elapsed)
 	}
 }
 

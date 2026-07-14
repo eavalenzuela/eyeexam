@@ -139,5 +139,18 @@ runner:
 limits:
   global_tests_per_second: 1
   per_host_concurrency: 1
+  # EDR-friendliness: spread executions out and bound each step. Empty/0
+  # keeps the original burst-y behaviour. --pace/--jitter/--step-timeout
+  # on 'eyeexam run' override these per-invocation.
+  inter_test_pace: 0s      # min delay between test executions (e.g. 30s)
+  inter_test_jitter: 0s    # extra uniform random [0,jitter) on top of pace
+  step_timeout: 0s         # per-step cap (e.g. 2m); 0 = runner default
+
+cleanup:
+  # deferred (default): all tests execute, then wait/query/score, then all
+  # cleanups run. eager: revert each test immediately after it executes, so
+  # an EDR killing a later test cannot strand an earlier test's file changes.
+  # Recommended: eager when running against hosts with an active EDR.
+  mode: deferred
 `, engagementID, dataDir, keyPath, dataDir)
 }

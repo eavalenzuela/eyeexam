@@ -82,3 +82,40 @@ func (s *Store) ListExecutionsForRun(ctx context.Context, runID string) ([]Execu
 	}
 	return out, nil
 }
+
+// hasPendingCleanup is the shared SQL predicate for an execution whose
+// cleanup or cleanup-verify still needs an attempt. 'failed' is included
+// alongside 'pending' on purpose: a cleanup that was interrupted or blocked
+// (e.g. an EDR killed the cleanup command, or a per-step timeout fired) is
+// RETRYABLE, so `eyeexam runs cleanup` can revert residue a first pass could
+// not. The terminal-ok states (succeeded / no_cleanup_defined / not_defined /
+// warned_atomic) are excluded.
+const hasPendingCleanup = `(cleanup_state IN ('pending','failed') OR cleanup_verify_state IN ('pending','failed'))`
+
+// ListRunsWithPendingCleanup returns the ids of runs that have at least one
+// execution still awaiting cleanup or cleanup-verify, most-recent first.
+// This is the durable backing for `eyeexam runs cleanup --all-pending`.
+func (s *Store) ListRunsWithPendingCleanup(ctx context.Context) ([]string, error) {
+	var out []string
+	if err := s.DB.SelectContext(ctx, &out, `
+		SELECT DISTINCT run_id FROM executions
+		WHERE `+hasPendingCleanup+`
+		ORDER BY run_id DESC
+	`); err != nil {
+		return nil, fmt.Errorf("store: list runs with pending cleanup: %w", err)
+	}
+	return out, nil
+}
+
+// CountPendingCleanupForRun returns how many executions in a run still await
+// cleanup or cleanup-verify. Used to report drain results to the operator.
+func (s *Store) CountPendingCleanupForRun(ctx context.Context, runID string) (int, error) {
+	var n int
+	if err := s.DB.GetContext(ctx, &n, `
+		SELECT COUNT(*) FROM executions
+		WHERE run_id = ? AND `+hasPendingCleanup+`
+	`, runID); err != nil {
+		return 0, fmt.Errorf("store: count pending cleanup: %w", err)
+	}
+	return n, nil
+}

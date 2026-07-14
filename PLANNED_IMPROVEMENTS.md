@@ -95,11 +95,14 @@ HTML/JSON reports.
    flow into CI gates, ticketing, and security dashboards — makes eyeexam a
    first-class pipeline input rather than a terminal HTML artifact.
 
-3. **Run lifecycle controls (`runs cancel` / graceful abort).** Complement
-   the existing phase-resume with a clean stop that still runs
-   cleanup-verify for in-flight tests and marks the run terminal — a stuck
-   or mistaken run currently has no safe abort that preserves the
-   cleanup-is-verified guarantee.
+3. **Run lifecycle controls (`runs cancel` / graceful abort).** _Partially
+   shipped:_ `run`/`runs resume` now trap SIGINT/SIGTERM and drain
+   cleanup-verify on abort, and `eyeexam runs cleanup <run-id> |
+   --all-pending` recovers file-modifying tests left pending by a hard kill
+   (see `docs/live-edr.md`). Remaining: a first-class `runs cancel` for a
+   run executing in *another* process (the SQLite lease from Improvement #7
+   is the natural signalling channel), and marking such a run terminal
+   rather than `failed`.
 
 4. **Coverage-gap ("what's untested") reporting.** Map configured packs
    against the ATT&CK matrix to surface techniques with no test at all

@@ -56,6 +56,13 @@ killed eyeexam process leaves a complete partial record. Every phase
 transition is its own SQL transaction, so `eyeexam runs resume <id>`
 re-enters at the next phase without re-executing finished work.
 
+Running against a host with an **active EDR** that may kill a test
+mid-run? See [`docs/live-edr.md`](./docs/live-edr.md): `--cleanup-mode
+eager` reverts each test the instant it finishes, `eyeexam runs cleanup`
+drains file changes left by a hard kill, a SIGINT/SIGTERM triggers a
+cleanup-draining graceful abort, and `--pace`/`--jitter`/`--step-timeout`
+keep a run from tripping burst heuristics or hanging on a blocked command.
+
 Detection scoring is honest: a test is `caught`, `missed`, or
 `uncertain` per expectation. `uncertain` means the detector errored or
 returned ambiguous results — it is **never** silently collapsed into
@@ -81,8 +88,10 @@ eyeexam pack list | add <name> <path> --source native|atomic | remove <name>
 eyeexam inventory list | check
 eyeexam plan --pack <name> [--tag <t>] [--hosts ...] [--tests ...]
 eyeexam run  --pack <name> --authorized --engagement <id> \
-             [--max-dest low|medium|high] [--dry-run] [--seed N] [--yes]
-eyeexam runs list [--engagement <id>] | show <run-id> [--json] | resume <run-id>
+             [--max-dest low|medium|high] [--dry-run] [--seed N] [--yes] \
+             [--cleanup-mode deferred|eager] [--pace <dur>] [--jitter <dur>] [--step-timeout <dur>]
+eyeexam runs list [--engagement <id>] | show <run-id> [--json] | resume <run-id> \
+                | cleanup <run-id> | cleanup --all-pending
 eyeexam audit verify | show [--run <id>] [--event <name>] [--actor <substr>] [--since <dur>] [--json]
 eyeexam report coverage [--engagement <id>] [--since 30d] [--format html|json] [--out <path>]
 eyeexam report run     <run-id>                 [--format html|json] [--out <path>]
@@ -93,6 +102,7 @@ eyeexam scheduler run [--interval 30s] [--audit-verify-interval 1h]
 
 ## Topic-by-topic docs
 
+- **Running against live-EDR hosts** — `docs/live-edr.md`
 - **SSH deployment** — `docs/deploy-ssh.md`
 - **Atomic Red Team support** — `docs/atomic-redteam.md`
 - **Detector backends** — `docs/detectors.md`

@@ -120,6 +120,82 @@ func TestListAuditFilters(t *testing.T) {
 	}
 }
 
+func TestPendingCleanupQueries(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.UpsertEngagement(ctx, Engagement{ID: "ENG-1", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertHost(ctx, Host{ID: "h-1", Name: "localhost", InventoryJSON: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	mkRun := func(id string) {
+		t.Helper()
+		if err := s.InsertRun(ctx, Run{
+			ID: id, EngagementID: "ENG-1", Seed: 0, MaxDest: "low",
+			SelectorJSON: "{}", PlanJSON: "{}", Phase: "cleanup", AuthorizedBy: "tester",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkExec := func(id, runID, cleanup, verify string) {
+		t.Helper()
+		if err := s.InsertExecution(ctx, Execution{
+			ID: id, RunID: runID, HostID: "h-1", TestID: "eye-001", TestSource: "native",
+			TestYAMLSHA256: "x", Destructiveness: "low", Runner: "local",
+			StartedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+			CleanupState: cleanup, CleanupVerifyState: verify, DetectionState: "pending",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mkRun("r-1")
+	mkExec("x-1a", "r-1", "pending", "pending") // fully pending
+	mkExec("x-1b", "r-1", "succeeded", "succeeded")
+	mkRun("r-2")
+	mkExec("x-2a", "r-2", "succeeded", "pending") // verify still pending → counts
+	mkRun("r-3")
+	mkExec("x-3a", "r-3", "succeeded", "succeeded") // fully done → excluded
+	mkExec("x-3b", "r-3", "no_cleanup_defined", "not_defined")
+	mkRun("r-4")
+	mkExec("x-4a", "r-4", "failed", "failed") // failed cleanup is RETRYABLE → counts
+
+	runs, err := s.ListRunsWithPendingCleanup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, r := range runs {
+		got[r] = true
+	}
+	if !got["r-1"] || !got["r-2"] || !got["r-4"] {
+		t.Errorf("expected r-1, r-2, r-4 pending/retryable, got %v", runs)
+	}
+	if got["r-3"] {
+		t.Errorf("r-3 has no pending cleanup but was returned: %v", runs)
+	}
+
+	for _, tc := range []struct {
+		run  string
+		want int
+	}{{"r-1", 1}, {"r-2", 1}, {"r-3", 0}, {"r-4", 1}} {
+		n, err := s.CountPendingCleanupForRun(ctx, tc.run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != tc.want {
+			t.Errorf("CountPendingCleanupForRun(%s)=%d, want %d", tc.run, n, tc.want)
+		}
+	}
+}
+
 func TestScheduleAppUserRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

@@ -3,13 +3,22 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/eavalenzuela/eyeexam/internal/inventory"
 )
+
+// killGrace is how long we wait, after cancelling a step, for the process
+// and its children to release the output pipes before Wait() forcibly
+// returns. Without this a grandchild that outlives the shell (e.g. a
+// command an EDR has blocked, or a backgrounded process) can keep Wait()
+// blocked for the command's full runtime, defeating the step timeout.
+const killGrace = 5 * time.Second
 
 // Local executes commands on the same host eyeexam itself runs on. It is
 // fully capable of destructive runs — destructiveness gating happens upstream
@@ -43,6 +52,20 @@ func (l *Local) Execute(ctx context.Context, host inventory.Host, step ExecuteSt
 	cmd := exec.CommandContext(ctx, shell, "-c", step.Command)
 	cmd.Stdin = step.Stdin
 
+	// Run the step in its own process group and, on timeout/cancel, kill the
+	// whole group so children die with the shell rather than being reparented
+	// and left running (and holding the stdout/stderr pipes open). WaitDelay
+	// is a backstop for anything that escapes the group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			// Negative pid → the process group led by the child.
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	cmd.WaitDelay = killGrace
+
 	if len(step.Env) > 0 {
 		env := os.Environ()
 		for k, v := range step.Env {
@@ -65,6 +88,15 @@ func (l *Local) Execute(ctx context.Context, host inventory.Host, step ExecuteSt
 		var ee *exec.ExitError
 		if exitErrAs(err, &ee) {
 			res.ExitCode = ee.ExitCode()
+			return res, nil
+		}
+		// WaitDelay expired: the shell itself exited (ProcessState is set) but
+		// a lingering child kept the output pipes open — common for a step that
+		// backgrounds a process (`foo &`, a beacon/listener). Trust the shell's
+		// real exit status instead of reporting a spurious runner error; a
+		// clean background start (exit 0) must not be scored as a failure.
+		if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil {
+			res.ExitCode = cmd.ProcessState.ExitCode()
 			return res, nil
 		}
 		// non-exit failure (couldn't start, context cancelled, etc.)

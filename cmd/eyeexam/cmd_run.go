@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"encoding/pem"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,7 +21,6 @@ import (
 	"github.com/eavalenzuela/eyeexam/internal/pack"
 	"github.com/eavalenzuela/eyeexam/internal/runlife"
 	"github.com/eavalenzuela/eyeexam/internal/runner"
-	"github.com/eavalenzuela/eyeexam/internal/store"
 )
 
 type runFlags struct {
@@ -29,6 +31,10 @@ type runFlags struct {
 	iReallyMeanIt bool
 	dryRun        bool
 	actorApp      string
+	cleanupMode   string
+	pace          string
+	jitter        string
+	stepTimeout   string
 }
 
 func newRunCmd() *cobra.Command {
@@ -47,17 +53,75 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&rf.iReallyMeanIt, "i-really-mean-it", false, "required with --yes for high-destructiveness runs")
 	cmd.Flags().BoolVar(&rf.dryRun, "dry-run", false, "print the plan and exit (same as 'eyeexam plan')")
 	cmd.Flags().StringVar(&rf.actorApp, "actor-app", "", "human identity to record alongside the OS user (e.g. when invoked by a service account)")
+	cmd.Flags().StringVar(&rf.cleanupMode, "cleanup-mode", "", "when to run cleanup: deferred|eager (default from config). eager reverts each test immediately after it runs — recommended against a live EDR")
+	cmd.Flags().StringVar(&rf.pace, "pace", "", "minimum delay between test executions, e.g. 30s (default from config); spreads activity so EDR burst heuristics don't trip")
+	cmd.Flags().StringVar(&rf.jitter, "jitter", "", "extra uniform random delay [0,jitter) added to --pace, e.g. 10s (default from config)")
+	cmd.Flags().StringVar(&rf.stepTimeout, "step-timeout", "", "per-step command timeout, e.g. 2m; 0 = runner default (default from config)")
 	return cmd
+}
+
+// edrKnobs holds the resolved EDR-friendliness settings for a run: flags
+// override config, config overrides zero.
+type edrKnobs struct {
+	cleanupMode string
+	pace        time.Duration
+	jitter      time.Duration
+	step        time.Duration
+}
+
+func resolveEDRKnobs(rf runFlags, cfg config.Config) (edrKnobs, error) {
+	k := edrKnobs{
+		cleanupMode: cfg.Cleanup.EffectiveMode(),
+		pace:        cfg.Limits.Pace(),
+		jitter:      cfg.Limits.Jitter(),
+		step:        cfg.Limits.Step(),
+	}
+	if rf.cleanupMode != "" {
+		if rf.cleanupMode != config.CleanupModeDeferred && rf.cleanupMode != config.CleanupModeEager {
+			return k, fmt.Errorf("--cleanup-mode must be %q or %q (got %q)",
+				config.CleanupModeDeferred, config.CleanupModeEager, rf.cleanupMode)
+		}
+		k.cleanupMode = rf.cleanupMode
+	}
+	var err error
+	if k.pace, err = overrideDur(rf.pace, k.pace, "--pace"); err != nil {
+		return k, err
+	}
+	if k.jitter, err = overrideDur(rf.jitter, k.jitter, "--jitter"); err != nil {
+		return k, err
+	}
+	if k.step, err = overrideDur(rf.stepTimeout, k.step, "--step-timeout"); err != nil {
+		return k, err
+	}
+	return k, nil
+}
+
+func overrideDur(flag string, def time.Duration, name string) (time.Duration, error) {
+	if flag == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(flag)
+	if err != nil {
+		return def, fmt.Errorf("%s: invalid duration %q: %w", name, flag, err)
+	}
+	if d < 0 {
+		return def, fmt.Errorf("%s must not be negative (got %q)", name, flag)
+	}
+	return d, nil
 }
 
 func doRun(rf runFlags) error {
 	if !rf.authorized {
 		return fmt.Errorf("--authorized is required")
 	}
-	cfg, err := loadConfig()
+
+	deps, err := loadRuntime(rf.actorApp)
 	if err != nil {
 		return err
 	}
+	defer deps.close()
+	cfg := deps.cfg
+
 	if rf.engagement == "" {
 		rf.engagement = cfg.Engagement.ID
 	}
@@ -66,75 +130,24 @@ func doRun(rf runFlags) error {
 			rf.engagement, cfg.Engagement.ID)
 	}
 
-	inv, err := inventory.Load(cfg.Inventory.Path)
+	edr, err := resolveEDRKnobs(rf, cfg)
 	if err != nil {
 		return err
 	}
-	reg, atomicSkipped, unsignedPacks, err := buildPackRegistry(cfg)
-	if err != nil {
-		return err
-	}
-	for name, skipped := range atomicSkipped {
-		for _, s := range skipped {
-			fmt.Fprintf(os.Stderr, "atomic pack %q: skipped %s — %s\n", name, s.ID, s.Reason)
-		}
-	}
 
-	st, err := store.Open(ctx(), cfg.DBPath())
-	if err != nil {
-		return err
-	}
-	defer func() { _ = st.Close() }()
-
-	priv, err := loadAuditKey(cfg.Audit.KeyPath)
-	if err != nil {
-		return fmt.Errorf("load audit key: %w", err)
-	}
-	al, err := audit.Open(cfg.Audit.LogPath, priv, st.DB)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = al.Close() }()
-
-	actor, err := audit.ActorFromOS(ctx())
-	if err != nil {
-		return err
-	}
-	var appUser *string
-	if rf.actorApp != "" {
-		if err := audit.ValidateAppUser(rf.actorApp); err != nil {
-			return err
-		}
-		v := rf.actorApp
-		actor.AppUser = &v
-		appUser = &v
-	}
-
-	emitUnsignedPackAudit(ctx(), al, actor, rf.engagement, unsignedPacks)
-
-	runners := map[string]runner.Runner{
-		"local": runner.NewLocal(),
-	}
-	if hostsUseTransport(inv, "ssh") {
-		sshR, err := buildSSHRunner(cfg)
-		if err != nil {
-			return fmt.Errorf("ssh runner: %w", err)
-		}
-		runners["ssh"] = sshR
-		defer func() { _ = sshR.Close() }()
-	}
-
-	dreg, err := buildDetectorRegistry(cfg)
-	if err != nil {
-		return fmt.Errorf("detector registry: %w", err)
-	}
+	emitUnsignedPackAudit(ctx(), deps.audit, deps.actor, rf.engagement, deps.unsignedPacks)
 
 	eng, err := runlife.New(runlife.Options{
-		Store: st, Audit: al, Registry: reg, Inventory: inv,
-		Runners:       runners,
-		Detectors:     dreg,
-		GlobalRateTPS: cfg.Limits.GlobalTestsPerSecond,
-		PerHostConcur: cfg.Limits.PerHostConcurrency,
+		Store: deps.store, Audit: deps.audit, Registry: deps.reg, Inventory: deps.inv,
+		Runners:         deps.runners,
+		Detectors:       deps.detectors,
+		GlobalRateTPS:   cfg.Limits.GlobalTestsPerSecond,
+		PerHostConcur:   cfg.Limits.PerHostConcurrency,
+		CleanupMode:     edr.cleanupMode,
+		InterTestPace:   edr.pace,
+		InterTestJitter: edr.jitter,
+		StepTimeout:     edr.step,
+		JitterSeed:      rf.seed,
 	})
 	if err != nil {
 		return err
@@ -157,8 +170,8 @@ func doRun(rf runFlags) error {
 			Tests: rf.tests, NotTests: rf.notTests,
 		},
 		Seed:    rf.seed,
-		Actor:   actor,
-		AppUser: appUser,
+		Actor:   deps.actor,
+		AppUser: deps.appUser,
 	}
 
 	runID, plan, err := eng.Plan(ctx(), planReq)
@@ -166,8 +179,11 @@ func doRun(rf runFlags) error {
 		return err
 	}
 
-	fmt.Printf("planned run %s — %d test execution(s) on %d host(s)\n",
-		runID, len(plan.Tests), countDistinctHosts(plan))
+	fmt.Printf("planned run %s — %d test execution(s) on %d host(s) [cleanup=%s]\n",
+		runID, len(plan.Tests), countDistinctHosts(plan), edr.cleanupMode)
+	if edr.pace > 0 || edr.jitter > 0 || edr.step > 0 {
+		fmt.Printf("  pacing: pace=%s jitter=%s step-timeout=%s\n", edr.pace, edr.jitter, edr.step)
+	}
 	for _, pt := range plan.Tests {
 		fmt.Printf("  %s  %s\n", pt.HostName, pt.TestID)
 	}
@@ -175,30 +191,61 @@ func doRun(rf runFlags) error {
 		return nil
 	}
 
-	if !confirmRun(plan, maxDest, rf, reg) {
+	if !confirmRun(plan, maxDest, rf, deps.reg) {
 		return fmt.Errorf("run cancelled")
 	}
 
 	// Audit destructive_run_authorized BEFORE first test executes when the
 	// plan contains anything above low.
-	if planExceedsLow(plan, reg) {
+	if planExceedsLow(plan, deps.reg) {
 		payload, _ := jsonMarshal(map[string]any{
 			"max_dest":   maxDest,
 			"engagement": rf.engagement,
 			"plan_size":  len(plan.Tests),
 		})
-		if _, err := al.Append(ctx(), audit.Record{
-			Actor: actor, Engagement: rf.engagement, RunID: runID,
+		if _, err := deps.audit.Append(ctx(), audit.Record{
+			Actor: deps.actor, Engagement: rf.engagement, RunID: runID,
 			Event: "destructive_run_authorized", Payload: payload,
 		}); err != nil {
 			return err
 		}
 	}
 
-	if err := eng.Execute(ctx(), runID, actor); err != nil {
-		return fmt.Errorf("run %s: %w", runID, err)
+	if err := runWithGracefulAbort(eng, runID, deps.actor, func(c context.Context) error {
+		return eng.Execute(c, runID, deps.actor)
+	}); err != nil {
+		return err
 	}
 	fmt.Printf("\nrun %s completed — see 'eyeexam runs show %s'\n", runID, runID)
+	return nil
+}
+
+// runWithGracefulAbort runs exec (Execute or Resume) under a SIGINT/SIGTERM
+// trap. On the first signal it cancels the run and drains cleanup on a fresh
+// context, so any in-flight file modifications (authorized_keys, crontab, …)
+// are reverted before the process exits. A second signal restores default
+// handling and hard-kills. A SIGKILL can't be trapped — recover from that with
+// `eyeexam runs cleanup <run-id>`.
+func runWithGracefulAbort(eng *runlife.Engine, runID string, actor audit.Actor, exec func(context.Context) error) error {
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	err := exec(runCtx)
+	if err != nil && runCtx.Err() != nil {
+		stop() // restore default handling; a second signal now hard-kills
+		fmt.Fprintf(os.Stderr, "\ninterrupted — reverting in-flight changes for run %s ...\n", runID)
+		cctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if derr := eng.DrainCleanup(cctx, runID, actor); derr != nil {
+			return fmt.Errorf("run %s aborted; cleanup incomplete: %w — run 'eyeexam runs cleanup %s'",
+				runID, derr, runID)
+		}
+		fmt.Fprintf(os.Stderr, "cleanup drained for run %s\n", runID)
+		return fmt.Errorf("run %s aborted by signal (cleanup completed)", runID)
+	}
+	if err != nil {
+		return fmt.Errorf("run %s: %w", runID, err)
+	}
 	return nil
 }
 
